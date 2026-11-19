@@ -1,0 +1,5 @@
+# HDM bundle patch: inserts the plugin row into a profile's layer stack.
+# Rows reference the package by name so Node resolution finds the installed code.
+- insert:
+    - id: hdm
+      name: 'dsh-hdm'

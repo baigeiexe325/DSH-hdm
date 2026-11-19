@@ -1,0 +1,84 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+#
+# turn-rescue：在 agent/turn-stopping 上介入，处理两类实测故障
+#   ① 空回合：模型只输出内部 reasoning，无文本无工具调用，回合就结束
+#      （实测 785 轮里 13 次，大上下文下明显升高）
+#   ② 重写循环：反复整份重写同一文件、越写越短
+#      （实测一个会话对同一文件 write 34 次，从 8643 字符缩到约 1000）
+# 介入方式：agent.steer() 注入一条 user 消息使回合继续。
+- insert:
+    - id: turn-rescue
+      name: dsh-turn-rescue
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: high
+- id: ui-settings-account
+  name: "@deepseek-ai/dsh-client-ui-settings-account"
+  config:
+    version: 1
+    step: done
+    purpose: development
+    process: standard
+    completion: completed
+    usage: detailed
+    developerTools: true
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: standard
+    performanceUsage: detailed
+- id: ui-settings
+  name: "@deepseek-ai/dsh-client-ui-settings"
+  config:
+    enabled: true
+# 本地 Ollama 路由（OpenAI 兼容）。
+# 注意：apiKeyEnv 是「凭据引用名」，不是密钥本身。
+# Ollama 本地无鉴权，但仍需一个占位值，否则 pi-ai 的 OpenAI 实现会拒绝请求。
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      ollama-local:
+        displayName: "Ollama (local)"
+        api: openai-completions
+        baseURL: http://127.0.0.1:11434/v1
+        apiKeyEnv: OLLAMA_LOCAL_API_KEY
+        models:
+          # 实测：qwen3.5-9b 工具调用必填字段填充率 3/3（native 与 openai 端点均通过）
+          # 96K 上下文为实测值：8.56 GB 显存 / 50.2 tok/s / 100% GPU 驻留。
+          # contextWindow 同时决定 DSH 的压缩触发点（compaction 默认按 80% 计算 => ~78.6K）
+          - id: qwen3.5-9b
+            name: "Qwen3.5 9B (Q4_K_M, local, 96K)"
+            contextWindow: 98304
+            maxTokens: 32768
+            input: [ text ]
+# meow-memory（喵记忆）：promptLang 决定注入/反思/dream 文案与工具描述语言，
+# 也影响模型写记忆条目所用语言。用户平时用中文交流 => 'zh'。
+- id: meow-memory
+  name: meow-memory
+  config:
+    promptLang: zh
+    enabled: false
+- id: permission
+  name: "@deepseek-ai/dsh-permission-presets"
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+    defaultPreset: danger-full-access
+
+- insert:
+    - id: hdm
+      name: 'dsh-hdm'
