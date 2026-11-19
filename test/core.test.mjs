@@ -923,7 +923,7 @@ test("handoff: 工作目录归一化比较、排除本会话单元、并列时�
   const registry = new Registry(home, config);
   await registry.load();
   const now = Date.parse("2026-11-18T16:00:00Z");
-  const session = { header: { id: "sess-current", cwd: "H:\\DSH WorkZone", createdAt: now } };
+  const session = { header: { id: "sess-current", cwd: "D:\\Work\\demo", createdAt: now } };
 
   const entry = (uid, overrides = {}) => ({
     uid,
@@ -936,7 +936,7 @@ test("handoff: 工作目录归一化比较、排除本会话单元、并列时�
     keywords: [],
     people: [],
     sessionId: "sess-old",
-    cwd: "H:\\DSH WorkZone",
+    cwd: "D:\\Work\\demo",
     createdAt: now - 86_400_000,
     updatedAt: now - 86_400_000,
     hitCount: 0,
@@ -949,7 +949,7 @@ test("handoff: 工作目录归一化比较、排除本会话单元、并列时�
   });
 
   // 1) H:/a 与 H:\A 是同一个目录：同工作区优先，不能被斜杠方向判成「别的工作区」。
-  await registry.upsert(entry("m-slash", { cwd: "H:/DSH WorkZone", updatedAt: now - 3600_000 }));
+  await registry.upsert(entry("m-slash", { cwd: "D:/Work/demo", updatedAt: now - 3600_000 }));
   await registry.upsert(entry("m-other", { cwd: "D:\\OtherRepo", updatedAt: now - 60_000 }));
   assert.equal((await selectHandoff({ home, config, registry, session, now })).uid, "m-slash");
 

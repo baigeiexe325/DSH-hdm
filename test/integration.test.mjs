@@ -680,7 +680,7 @@ const ORGANIZED_JSON = JSON.stringify({
   details: ["窗口默认 180 分钟到 12 小时", "没有新增用户发言就不重复整理"],
   keywords: ["HDM", "空闲整理", "面板", "同一编码", "窗口", "维护模型", "提示词", "去重", "日志", "命令"],
   people: [],
-  scene: "H:\\DSH WorkZone",
+  scene: "D:\\Work\\demo",
   event: "HDM 升级",
   emotion: "",
   importance: 3,
