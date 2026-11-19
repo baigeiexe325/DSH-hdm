@@ -20,7 +20,7 @@ Thumbs.db
 STATUS.md
 PLAN.md
 PLAN-UPGRADE.md
-lib/interfaces.md
+docs/
 tools/_texts.json
 tools/content*.py
 tools/docgen*.py
