@@ -23,6 +23,7 @@ import {
   loadAliases,
   updateCharacter,
   applySaveCharacters,
+  buildCharacterSnippet,
 } from "../lib/characters.js";
 
 // 直接复用 lib 的固定标题清单，避免测试与实现各写一份而漂移。
@@ -147,12 +148,13 @@ test("buildIamAnchor 每节 1~2 句且不超过 anchorMaxChars", async (t) => {
 
   const anchor = await buildIamAnchor(home, { iam: { anchorMaxChars: 400, anchorIncludeUserTone: false } });
   assert.ok(anchor.length <= 400);
-  assert.match(anchor, /我是谁：我是小林，一名开发者。喜欢做工具。/);
+  // 锚点取「首句 + 末句」：节尾追加的新事实必须进锚点，中间句不进。
+  assert.match(anchor, /我是谁：我是小林，一名开发者。第三句不应出现。/);
   assert.match(anchor, /我是怎样的人：先勘察再动手。结论要有运行证据。/);
   assert.match(anchor, /当前目标：当前目标是完成 HDM。目标第二句不出现。/);
   assert.match(anchor, /重要关系：用户是长期伙伴。朋友很多。/);
-  assert.ok(!anchor.includes("第三句不应出现"));
-  assert.ok(!anchor.includes("索引第三句不出现"));
+  assert.ok(!anchor.includes("喜欢做工具"));
+  assert.ok(!anchor.includes("索引第二句"));
 
   const short = await buildIamAnchor(home, { iam: { anchorMaxChars: 30, anchorIncludeUserTone: false } });
   assert.ok(short.length <= 30);
@@ -424,4 +426,29 @@ test("updateCharacter 章节别名归一到模板标题，不再长出重复章�
   const custom = await updateCharacter(home, { name: "用户", notes: "记一笔。", section: "工作习惯", evidenceUid: "m-4" }, 12000);
   assert.equal(custom.section, "工作习惯");
   assert.match(await read(file), /^## 工作习惯$/m);
+});
+
+test("buildCharacterSnippet：USER 取基本前两句，别名解析，缺文件返回 null", async (t) => {
+  const home = await freshHome(t);
+  await updateCharacter(home, { name: "用户", notes: "用户是单人协作伙伴。偏好简洁。第三句不取。" }, 12000);
+  const user = await buildCharacterSnippet(home, "用户", 200);
+  assert.equal(user.name, "USER");
+  assert.match(user.excerpt, /单人协作伙伴/);
+  assert.ok(!user.excerpt.includes("第三句不取"));
+  assert.ok(user.excerpt.length <= 200);
+
+  assert.equal(await buildCharacterSnippet(home, "不存在的人", 200), null);
+  assert.equal(await buildCharacterSnippet("", "用户", 200), null);
+});
+
+test("buildIamAnchor 预算不足时不漏节（实机 400 字回归）", async (t) => {
+  const home = await freshHome(t);
+  const long = "这一节写得比较长，占了预算，后面还有若干句子用于把该节撑到很长。还有更多句子继续占用字符总量。";
+  const content = `# IAM\n\n${REQUIRED.map((title) => `## ${title}\n${long}末句在这里。`).join("\n\n")}\n`;
+  const written = await updateIam(home, { mode: "rewrite", content }, 10000);
+  assert.equal(written.ok, true);
+
+  const anchor = await buildIamAnchor(home, { iam: { anchorMaxChars: 200, anchorIncludeUserTone: false } });
+  assert.ok(anchor.length <= 400);
+  for (const title of REQUIRED) assert.ok(anchor.includes(`${title}：`), `锚点漏掉「${title}」`);
 });

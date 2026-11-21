@@ -34,7 +34,8 @@ hdm_save.out.next: 后续动作提示（更新 IAM/人物、下次提醒阈值�
 hdm_recall.description: 按关键词调取记忆。铁律：keywords 必填且 1~12 个，缺失或为空直接报错，不做全量返回。
   默认返回当前默认档；需要细节用 view:2，结果里的 higherLevels 指向更完整档位，再用 hdm_read 读。
   权重 = 命中关键词数 + 档位等级 × recall.levelBias（默认 1）+ boost 加成。
-  每次命中 hitCount 增加；命中数超过 association.triggerCount（默认 4）时附带联想记忆。
+  每次命中 hitCount 增加（按本次命中词 keyness 之和 × 0.2 加权，不是固定 +1）；命中数超过 association.triggerCount（默认 4）时附带联想记忆。
+  命中行若与人物名匹配，会附带 characters 摘录（USER 优先），可直接引用，不必再读档案文件。
   要用它为某个目标选方案（例如抓网页正文：用命令还是用用户浏览器）时，先把问题压成 3~8 个词表里的名词再检索，别整句搜索。
 hdm_recall.param.keywords: 必填，1~12 个；用人物、项目、事件、专有名词，先给最关键的。
 hdm_recall.param.topK: 可选，1~10，默认 3。
@@ -42,7 +43,7 @@ hdm_recall.param.view: 可选，auto（默认，用 defaultLevel）/ 0 / 1 / 2�
 hdm_recall.param.sameDayOf: 可选，某条记忆 uid；返回同一天的记忆，两边都写了 eventKey 时还要求 eventKey 相同。
 hdm_recall.param.boost: 可选，none（默认）/ usage / recency / pinned。
 hdm_recall.param.includeAssociations: 可选，布尔，默认 true；false 时不返回联想。
-hdm_recall.out.matches: 命中列表，含 uid、label、defaultLevel、level、path、higherLevels、weight、matchedKeywords、hitCount、immortal、views。
+hdm_recall.out.matches: 命中列表，含 uid、label、defaultLevel、level、path、higherLevels、weight、matchedKeywords、hitCount、characters、immortal、views。
 hdm_recall.out.associations: 联想列表，含 uid、label、level、path、gist、reason、chars。
 hdm_recall.out.associationTruncated: 联想是否因字数预算被截断。
 hdm_recall.out.viewFallback: 请求档不存在而回退时为 true。

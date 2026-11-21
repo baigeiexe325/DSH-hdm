@@ -65,12 +65,13 @@ test("prompts/zh 目录里恰好 6 个 .md 文件", () => {
 
 // 0.2.0 起 system-guide 增加「同一编码与空闲整理」一节（约 450 字节），skill 增加 9.5 一节；
 // 2026-11-19 补 IAM 写法要求（skill §5 三条 + guide §四 一行），预算再上调一次。
+// 2026-11-21 补「何时更新 IAM / 人物」触发清单（guide 5 类 + skill 3 条），上限同步上调。
 // 但上限仍设：静态 section 每次请求都进系统提示，膨胀要有人拦。
-test("system-guide.md 2500~5100 字节，skill.md 3000~5500 字节", () => {
+test("system-guide.md 2500~5600 字节，skill.md 3000~6200 字节", () => {
   const guide = byteSize("system-guide");
   const skill = byteSize("skill");
-  assert.ok(guide >= 2500 && guide <= 5100, `system-guide.md 字节数越界: ${guide}`);
-  assert.ok(skill >= 3000 && skill <= 5500, `skill.md 字节数越界: ${skill}`);
+  assert.ok(guide >= 2500 && guide <= 5600, `system-guide.md 字节数越界: ${guide}`);
+  assert.ok(skill >= 3000 && skill <= 6200, `skill.md 字节数越界: ${skill}`);
 });
 
 test("system-guide.md 含总览/工具/写作准则等必需小节", () => {
@@ -126,6 +127,16 @@ test("skill.md 写清 IAM 写法（含当前目标与我是怎样的人）", () 
   assert.match(text, /当前目标/);
   assert.match(text, /末点写下一步/);
   assert.match(text, /①②③/);
+});
+
+// 让模型更倾向更新 IAM：触发清单必须写进静态 guide 与 skill，不能只靠工具描述。
+test("提示词含「何时更新 IAM / 人物」触发清单与保存后自查", () => {
+  const guide = readFile("system-guide");
+  assert.match(guide, /何时更新 IAM/);
+  assert.match(guide, /每次 `hdm_save` 后自查一次/);
+  const skill = readFile("skill");
+  assert.match(skill, /自查一次 IAM\/人物/);
+  assert.match(skill, /replace_section/);
 });
 
 test("getToolText() 解析键值行（含续行），缺失键/非法入参返回空串", () => {

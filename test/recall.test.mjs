@@ -5,7 +5,7 @@ import path from "node:path";
 import test, { after } from "node:test";
 
 import { relatedMemories } from "../lib/associations.js";
-import { buildPreStepDecision, buildVocab } from "../lib/injection.js";
+import { buildAutoRecall, buildPreStepDecision, buildVocab, REMEMBER_INSTRUCTION } from "../lib/injection.js";
 import { resolveSnapshotLevel } from "../lib/memory.js";
 import { normalizeKeywords, recall } from "../lib/recall.js";
 
@@ -66,22 +66,24 @@ function fakeRegistry(memories = []) {
       }
       return hits;
     },
-    async bumpHits(uids, now) {
+    async bumpHits(entries, now) {
       this.bumpHitsCalls += 1;
       const counts = new Map();
-      for (const uid of uids) {
+      for (const item of entries) {
+        const uid = typeof item === "string" ? item : item?.uid;
+        const delta = typeof item === "string" ? 1 : Number(item?.delta ?? 1);
         const memory = map.get(uid);
         if (!memory) continue;
-        memory.hitCount = Math.min(10, (memory.hitCount ?? 0) + 1);
+        memory.hitCount = Math.round(Math.min(10, (memory.hitCount ?? 0) + delta) * 100) / 100;
         memory.lastHitAt = now ?? NOW;
         counts.set(uid, memory.hitCount);
       }
       return counts;
     },
-    async bumpHit(uid, now) {
+    async bumpHit(uid, now, delta = 1) {
       const memory = map.get(uid);
       if (!memory) return undefined;
-      memory.hitCount = Math.min(10, (memory.hitCount ?? 0) + 1);
+      memory.hitCount = Math.round(Math.min(10, (memory.hitCount ?? 0) + delta) * 100) / 100;
       memory.lastHitAt = now ?? NOW;
       return memory;
     },
@@ -141,10 +143,10 @@ test("recall：本轮批量 bumpHits 只调用一次（N 行不落 N 次盘）",
   assert.equal(registry.bumpHitsCalls, 1, "两行命中只应批量 bump 一次");
   assert.deepEqual(
     result.matches.map((row) => row.hitCount),
-    [1, 1],
+    [1.2, 1.2],
   );
-  assert.equal(registry.get("p-a").hitCount, 1);
-  assert.equal(registry.get("p-b").hitCount, 1);
+  assert.equal(registry.get("p-a").hitCount, 1.2);
+  assert.equal(registry.get("p-b").hitCount, 1.2);
 });
 
 test("recall：registry 没有 bumpHits 时逐条 bumpHit 回退", async () => {
@@ -152,8 +154,76 @@ test("recall：registry 没有 bumpHits 时逐条 bumpHit 回退", async () => {
   assert.equal(typeof bumpHits, "function");
   const result = await recall({ registry: legacy, config: baseConfig(), keywords: ["辛"], now: NOW });
   assert.equal(result.matches.length, 1);
-  assert.equal(result.matches[0].hitCount, 1);
-  assert.equal(legacy.get("l-a").hitCount, 1);
+  assert.equal(result.matches[0].hitCount, 1.2);
+  assert.equal(legacy.get("l-a").hitCount, 1.2);
+});
+
+test("recall：hitCount 按 Σ(命中词 keyness)×0.2 加权，不是固定 +1", async () => {
+  const a = mem("w-a", { keywords: [kw("甲", 2, 5), kw("乙", 2, 6), kw("丙", 2, 9)] });
+  const registry = fakeRegistry([a]);
+  const result = await recall({ registry, config: baseConfig(), keywords: ["甲", "乙"], now: NOW });
+  // 命中 5 + 6 = 11 → 11 × 0.2 = 2.2；同记忆只累加一次，不按命中词个数各加一遍。
+  assert.equal(result.matches[0].hitCount, 2.2);
+  assert.equal(registry.get("w-a").hitCount, 2.2);
+});
+
+test("recall：命中人物关键词时附人物档案摘录（USER 优先）", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "hdm-recall-home-"));
+  await mkdir(path.join(home, "characters"), { recursive: true });
+  await writeFile(
+    path.join(home, "characters", "USER.md"),
+    "# USER 档案\n\n## 基本\n用户是单人协作伙伴。偏好简洁。\n",
+    "utf8",
+  );
+  const registry = fakeRegistry([mem("c-a", { keywords: [kw("用户")], people: ["用户"] })]);
+  const result = await recall({
+    registry,
+    home,
+    config: baseConfig({ homeDir: home }),
+    keywords: ["用户"],
+    now: NOW,
+  });
+  const row = result.matches[0];
+  assert.equal(row.characters.length, 1);
+  assert.equal(row.characters[0].name, "USER");
+  assert.match(row.characters[0].excerpt, /单人协作伙伴/);
+});
+
+test("REMEMBER_INSTRUCTION：要求同轮更新 IAM 与人物档案", () => {
+  assert.match(REMEMBER_INSTRUCTION, /hdm_iam_update/);
+  assert.match(REMEMBER_INSTRUCTION, /hdm_character_update/);
+});
+
+test("buildAutoRecall：命中人物的注入行附「人物：USER」摘录", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "hdm-recall-ar-"));
+  await mkdir(path.join(home, "characters"), { recursive: true });
+  await writeFile(
+    path.join(home, "characters", "USER.md"),
+    "# USER 档案\n\n## 基本\n用户是单人协作伙伴。偏好简洁。\n",
+    "utf8",
+  );
+  const memory = mem("ar-a", { keywords: [kw("用户")], people: ["用户"] });
+  await writeSnapshot(memory, 2, "## 摘要\n用户在改 HDM 注入。\n\n## 细节\n- 一条。\n");
+  const registry = fakeRegistry([memory]);
+  const state = {
+    sessions: {},
+    getSession(id) {
+      return (this.sessions[id] ??= { recalledUids: [] });
+    },
+    async updateSession(id, patch) {
+      this.sessions[id] = { ...this.getSession(id), ...patch };
+    },
+  };
+  const text = await buildAutoRecall({
+    home,
+    config: { autoRecall: { enabled: true, topK: 2, minScore: 1, maxChars: 600 }, characters: { snippetChars: 200 } },
+    registry,
+    state,
+    sessionId: "s-ar",
+    text: "用户那边还有什么",
+  });
+  assert.match(text, /可能相关的记忆/);
+  assert.match(text, /人物：USER（.*单人协作伙伴/);
 });
 
 test("resolveSnapshotLevel：距离最近、同距取高、fallback 标记", () => {
@@ -224,7 +294,7 @@ test("recall：候选、权重、排序、topK、views/higherLevels、bumpHit", 
   assert.deepEqual(first.views, { 2: `${a.folder}/level2.txt` });
   assert.deepEqual(first.higherLevels, []);
   assert.deepEqual(first.matchedKeywords, ["用户"]);
-  assert.equal(first.hitCount, 1); // bump 后
+  assert.equal(first.hitCount, 1.2); // bump 后（keyness 6 × 0.2）
   assert.equal(first.immortal, false);
 
   assert.equal(second.uid, "r-b");
@@ -234,8 +304,8 @@ test("recall：候选、权重、排序、topK、views/higherLevels、bumpHit", 
   assert.deepEqual(second.views, { 1: `${b.folder}/level1.txt`, 2: `${b.folder}/level2.txt` });
   assert.deepEqual(second.matchedKeywords, ["用户"]);
 
-  assert.equal(registry.get("r-a").hitCount, 1);
-  assert.equal(registry.get("r-b").hitCount, 1);
+  assert.equal(registry.get("r-a").hitCount, 1.2);
+  assert.equal(registry.get("r-b").hitCount, 1.2);
 });
 
 test("recall：view=auto 用 defaultLevel；显式档缺失回退并标记 viewFallback", async () => {
@@ -409,7 +479,7 @@ test("联想：hitCount 超阈值触发（原因/排序/去重/预算）", async
 
   assert.equal(result.matches.length, 1);
   assert.equal(result.matches[0].uid, "a1-main");
-  assert.equal(result.matches[0].hitCount, 4); // 3 → bump 4 > triggerCount 3
+  assert.equal(result.matches[0].hitCount, 4.2); // 3 → 加权 bump 4.2 > triggerCount 3
   assert.equal(result.associationTruncated, false);
 
   const uids = result.associations.map((item) => item.uid);
@@ -448,7 +518,7 @@ test("联想：hitCount 超阈值触发（原因/排序/去重/预算）", async
 test("联想：未超 triggerCount 不触发；includeAssociations/enabled 可关闭", async () => {
   const world = await associationWorld("a2");
 
-  world.main.hitCount = 1; // bump → 2，不超过 3
+  world.main.hitCount = 1; // 加权 bump 1.2 → 2.2，不超过 3
   let result = await recall({
     registry: world.registry,
     config: baseConfig({ homeDir: world.home }),
@@ -456,7 +526,7 @@ test("联想：未超 triggerCount 不触发；includeAssociations/enabled 可�
     now: NOW,
     topK: 1,
   });
-  assert.equal(result.matches[0].hitCount, 2);
+  assert.equal(result.matches[0].hitCount, 2.2);
   assert.deepEqual(result.associations, []);
   assert.equal(result.associationTruncated, false);
 
