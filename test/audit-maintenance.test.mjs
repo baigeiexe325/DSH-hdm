@@ -220,7 +220,7 @@ test("F: 配置叶子 volatile，数组只标数组本身，resolveConfig 解包
   assert.equal(DEFAULTS.save.threshold, 0.5);
   assert.equal(DEFAULTS.save.step, 0.15);
   assert.equal(DEFAULTS.save.maxPerSession, 4);
-  assert.equal(DEFAULTS.recall.topK, 3);
+  assert.equal(DEFAULTS.recall.topK, 0, "0.3.0 起 0 = 跟随输入关键词数");
   assert.equal(DEFAULTS.handoff.maxChars, 2000);
   assert.equal(DEFAULTS.autoRecall.minScore, 2);
   assert.equal(DEFAULTS.iam.maxChars, 6000);

@@ -98,7 +98,7 @@ test("config: 默认值、合并覆盖、~ 展开", () => {
   assert.equal(config.enabled, true);
   assert.equal(config.save.threshold, 0.5);
   assert.equal(config.save.step, 0.15);
-  assert.equal(config.recall.topK, 3);
+  assert.equal(config.recall.topK, 0, "0.3.0 起 topK 默认 0 = 跟随输入关键词数");
   assert.equal("defaultView" in config.recall, false, "defaultView 已删除");
   assert.deepEqual(config.forget.days, [2, 5]);
   assert.equal(config.association.triggerCount, 4);
@@ -141,7 +141,7 @@ test("config: ~standard.validate 与 KEYWORD_BANDS", () => {
   const rawThreshold = ok.value.save.threshold;
   const threshold = rawThreshold && typeof rawThreshold.get === "function" ? rawThreshold.get() : rawThreshold;
   assert.equal(threshold, 0.5);
-  const bad = Config["~standard"].validate({ recall: { topK: 0 } });
+  const bad = Config["~standard"].validate({ recall: { topK: 13 } });
   assert.ok(Array.isArray(bad.issues));
   assert.match(bad.issues[0].message, /topK/);
   assert.equal(Config.type, "object");
@@ -768,6 +768,7 @@ test("state: SessionState 默认值、持久化与损坏容错", async () => {
     userTurnsSinceMemory: 0,
     nudges: 0,
     recalledUids: [],
+    sharedUids: [],
     memoryUid: null,
     pinConversation: false,
     lastUserAt: null,

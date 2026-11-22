@@ -2,7 +2,7 @@
 
 > 本地、纯文件、超长期的大语言模型陈述性记忆系统。给 DSH 一个可配置的「母文件夹」，像人一样按日期归档会话、整理、遗忘、联想和回忆。
 
-版本：0.2.8 · 包名：`dsh-hdm` · 无第三方运行时依赖 · 纯 ESM
+版本：0.3.0 · 包名：`dsh-hdm` · 无第三方运行时依赖 · 纯 ESM
 
 ---
 
@@ -43,7 +43,7 @@
 | `save.threshold` | `0.50` | 上下文压力达到该比例时提醒保存 |
 | `save.step` | `0.15` | 下一次提醒的压力增量 |
 | `save.maxPerSession` | `4` | 单会话最多提醒次数 |
-| `recall.topK` | `3` | 默认返回条数 |
+| `recall.topK` | `0` | 默认返回条数；`0` = 跟随本次输入的关键词个数（上限 12） |
 | `recall.levelBias` | `1` | 权重中的等级系数 |
 | `handoff.enabled` | `true` | 新会话接力 |
 | `handoff.maxChars` | `2000` | 接力内容上限 |
@@ -62,6 +62,15 @@
 | `characters.maxChars` | `12000` | 单人物档案上限 |
 | `characters.injectOnRecall` | `true` | 召回命中人物时附档案摘录、首轮注入「用户档案」 |
 | `characters.snippetChars` | `200` | 单条人物摘录字数上限 |
+| `autoRecall.vocabTop` | `50` | 记忆词表向模型展示的词数（按 keyness × 时间衰减排） |
+| `autoRecall.vocabChars` | `1200` | 记忆词表注入字数上限（`0` = 不注入） |
+| `imagery.enabled` | `true` | 意象层（关键词线索记忆）开关 |
+| `imagery.threshold` | `15` | 关键词进入意象层的最低记忆质量分 |
+| `imagery.minMemories` | `2` | 关键词至少出现在几条记忆里才建意象 |
+| `imagery.injectOnRecall` | `true` | 召回命中已建意象时附条目路径 |
+| `imagery.maxReadChars` | `6000` | `hdm_imagery read` 单次返回字数上限 |
+| `sharing.enabled` | `false` | 跨会话记忆共享总开关 |
+| `sharing.level` | `0` | `0` 关 / `1` 只共享活跃会话 / `2` 再加旧会话 uid |
 | `maintenance.provider` / `maintenance.model` | 空 | 后台维护模型，空则用默认模型 |
 | `maintenance.maxTokens` | `100000` | 后台调用输出预算；宿主会按模型窗口向下钳制，填大了不报错 |
 | `maintenance.timeoutSeconds` | `600` | 单次后台调用超时（秒） |
@@ -159,11 +168,33 @@
 | L1 | 默认。真实用户回复时，关键词命中就附「可能相关的记忆」 |
 | L2 | L1 + **方案决策点**（上一轮发起了非纯文件类工具，模型正要决定怎么做）+ 子代理首步 |
 
-配套的是一条提示词协议：模型要为达成目标挑方案时（例如抓网页正文——用命令还是用用户桌面浏览器），先把问题压成 3~8 个词表里的名词，再 `hdm_recall`。词表来自 `index/keywords.json`，按 keyness 汇总取 top，长度由 `autoRecall.vocabChars` 控制（0 = 不注入）。
+配套的是一条提示词协议：模型要为达成目标挑方案时（例如抓网页正文——用命令还是用用户桌面浏览器），先把问题压成 3~8 个词表里的名词，再 `hdm_recall`。词表来自 `index/keywords.json`，按 keyness × 时间衰减排，默认给前 `autoRecall.vocabTop`（50）个；`autoRecall.vocabChars` 只卡字数上限（0 = 不注入）。
 
 - 每轮最多自动召回一次（`recallTurn`），已注入的 uid 记在 `recalledUids` 里不重复。
 - 纯文件读写续步不算方案决策点（对应「文件写入不算」）；判据是 `FILE_TOOL_RE`，属启发式。
 - `autoRecall.subagent` 控制 L2 下子代理首步要不要召回；子代理只召回，不注入 IAM/handoff。
+
+## 记忆词表与检索顺序（0.3.0）
+
+- **词表**：全库关键词跨记忆累加 `(keyness + 1) × 时间衰减`（30 天线性降到 0.25），从高到低排；领域泛词（>30% 记忆都有）不进候选。默认展示前 50 个（`autoRecall.vocabTop`），`vocabChars` 只卡字数。
+- **检索顺序**：`hdm_recall` 先在前 50 个词上做模糊匹配（同词 / 双向包含且短边 ≥2 字 / 拉丁词编辑距离 ≤1），用命中的词条取记忆；凑不够期望条数就进 50~100 并降低期望（×0.8，最低 1），一直循环到第 250 个词。
+- **兜底**：粗查一路扫完仍不够时，按原倒排做一次精确细找，两条来源按 uid 合并；全都没有才返回空结构。返回里的 `search` 字段带 `stage`（coarse/fine/empty）、`expected`、`aim`、`windows`、`terms`、`fuzzyTerms`，方便排查为什么没找到。
+- **返回条数**：默认等于本次输入的关键词个数（上限 12），显式 `topK` 优先；`recall.topK=0` 就是这个默认值。
+
+## 意象层 Imagery（0.3.0）
+
+- **定位**：`Imagery/` 下一个关键词一个 `.md`，记「这个词对我意味着什么」与相关经历；memory/ 按时间，Imagery 按关键词。
+- **门槛**：`score = (ΣhitCount + 3×immortal数) × (0.5 + keyness/10)`，默认 `imagery.threshold=15`。现库 252 个词里达标 12 个（IAM 94.6、HDM 82.6、plan 52.6、母文件夹 51.5、goal 39、我是怎样的人 38.5…）。
+- **写入**：`hdm_imagery(action=write, term, meaning, uids)`，不达标直接报错；md 只追加不覆盖，索引 `index/imagery.json` 可从 md 重建（`hdm_organize` 一并重建）。
+- **召回**：命中行带 `imagery` 字段（term/file/score），只给路径，正文用 `hdm_imagery read` 自取；`imagery.injectOnRecall` 可关。
+- 快照覆盖 `Imagery/`，母文件夹之外也存一份。
+
+## 跨会话共享（0.3.0）
+
+- **档位**：`sharing.level` 0 关（默认）/ L1 只共享活跃会话 / L2 再加旧会话 uid；设置页「跨会话共享」下拉可改。
+- **活跃判定**：本进程 pre-step 心跳 `busyWindowMinutes`（默认 10）内，或 `lastUserAt` 在 `recentWindowMinutes`（默认 60）内；旧会话指 1h~24h。
+- **注入**：首轮与每个真实用户步追加 `===== 跨会话共享 =====`；L1 给 uid + 档位 + 摘要（≤200 字），L2 再给旧会话 uid（≤400 字，只给编号）；按 `state.sessions[id].sharedUids` 去重（最新 200），自身会话不注入自己。
+- **跨进程假设**：「正在工作」只能用本进程心跳近似，跨进程退化为 `lastUserAt`。
 
 ## 压缩前记忆（0.2.4）
 

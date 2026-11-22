@@ -15,6 +15,7 @@ import {
   updateIam,
   renderMemoryIndex,
   syncIamIndex,
+  lintIamContent,
 } from "../lib/iam.js";
 import {
   USER_TEMPLATE,
@@ -126,7 +127,7 @@ test("buildIamAnchor 每节 1~2 句且不超过 anchorMaxChars", async (t) => {
 先勘察再动手。结论要有运行证据。
 
 ## 人生阶段
-正在做插件。人生阶段第二句不出现。
+2026 年开始做插件。2026 年人生阶段第二句不出现。
 
 ## 重要关系
 用户是长期伙伴。朋友很多。
@@ -443,12 +444,47 @@ test("buildCharacterSnippet：USER 取基本前两句，别名解析，缺文件
 
 test("buildIamAnchor 预算不足时不漏节（实机 400 字回归）", async (t) => {
   const home = await freshHome(t);
-  const long = "这一节写得比较长，占了预算，后面还有若干句子用于把该节撑到很长。还有更多句子继续占用字符总量。";
-  const content = `# IAM\n\n${REQUIRED.map((title) => `## ${title}\n${long}末句在这里。`).join("\n\n")}\n`;
+  const long = "这一节写得较长，用来撑预算，还要再占一些字符。";
+  // 人生阶段每点必须带年份（lintIamContent 的确定性规则），其余节用同一段长文本撑预算。
+  const bodyOf = (title) =>
+    title === "人生阶段" ? `2026 年${long}2026 年末句在这里。` : `${long}末句在这里。`;
+  const content = `# IAM\n\n${REQUIRED.map((title) => `## ${title}\n${bodyOf(title)}`).join("\n\n")}\n`;
   const written = await updateIam(home, { mode: "rewrite", content }, 10000);
   assert.equal(written.ok, true);
 
   const anchor = await buildIamAnchor(home, { iam: { anchorMaxChars: 200, anchorIncludeUserTone: false } });
   assert.ok(anchor.length <= 400);
   for (const title of REQUIRED) assert.ok(anchor.includes(`${title}：`), `锚点漏掉「${title}」`);
+});
+
+test("lintIamContent：拒绝运行细节/事件回忆/长括号解释，放行纯结论", () => {
+  // 这两种正是实机 IAM 串味的写法：把报错处理与机制细节写进了「我是怎样的人」。
+  assert.ok(
+    lintIamContent("我是怎样的人", "⑨ 工具报参数错就修参数本身，绝不用占位值凑数绕过校验（曾用 a1~j10 当关键词，污染标签与词表）。").length > 0,
+  );
+  assert.ok(
+    lintIamContent("我是怎样的人", "⑩ 改共享记忆库的索引前先确认有没有别的会话在写：运行中插件的 registry 是启动时载入的内存副本。").length > 0,
+  );
+  assert.ok(lintIamContent("我是怎样的人", "① 先勘察再动手，改前读现状、跑测试基线。② 结论要有运行证据。").length === 0);
+});
+
+test("updateIam：硬性拦截串味写入，记忆索引拒手写，合规内容照常写入", async (t) => {
+  const home = await freshHome(t);
+  await ensureIam(home);
+
+  const bad = await updateIam(home, { content: "改索引前先确认别的会话没在写（曾用 a1~j10 占位）。", mode: "append", section: "我是怎样的人" }, 10000);
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /IAM 写入被拒/);
+
+  const index = await updateIam(home, { content: "手写索引。", mode: "replace_section", section: "记忆索引" }, 10000);
+  assert.equal(index.ok, false);
+  assert.match(index.error, /自动维护/);
+
+  const noYear = await updateIam(home, { content: "① 做了一些插件。", mode: "replace_section", section: "人生阶段" }, 10000);
+  assert.equal(noYear.ok, false);
+  assert.match(noYear.error, /缺少时间/);
+
+  const good = await updateIam(home, { content: "① 先勘察再动手。② 结论要有运行证据。", mode: "replace_section", section: "我是怎样的人" }, 10000);
+  assert.equal(good.ok, true);
+  assert.match(await read(path.join(home, "IAM.md")), /先勘察再动手/);
 });

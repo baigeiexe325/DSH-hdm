@@ -12,6 +12,7 @@
 | 为达成目标选方案 | 先压成 3~8 个词表名词，再 `hdm_recall` |
 | 要原话/细节 | `hdm_read`（auto→level:2） |
 | 偏好/身份/关系 | `hdm_character_update`，USER 优先 |
+| 关键词与自身经历的释义 | `hdm_imagery`（先 list/read，值得写再 write） |
 | 长期目标/自我变化 | `hdm_iam_update` |
 | 记忆库需要整理 | `hdm_organize`（`dryRun:true` 只预览） |
 
@@ -34,6 +35,8 @@
 ## 4. 调取
 
 `hdm_recall({keywords})` 先读摘要；不够细加 `view:2`；仍不够用 `higherLevels` 里的路径 `hdm_read({uid, level})`（`auto` 读默认档）。`associations` 只在命中数超阈值时出现，按 reason 判断相关性；无命中就换同义词/人物名再试，仍空说明记忆不存在，别编造。
+
+命中行带 `imagery` 时，那是该关键词的意象条目（关键词线索经历）；需要背景用 `hdm_imagery read`。`write` 要求分数 ≥`imagery.threshold`（默认 15）且≥2 条记忆承载；多个 uid 用 `notes` 逐条给一句（{uid: note}），省了它自动填事件名——别让所有 uid 共用一句。
 
 ## 5. IAM 与人物
 
@@ -63,6 +66,8 @@
 - 不手工编辑 `index/`、`state/`、已有快照；写入只经 `hdm_*` 工具，不删除、不改写已有快照。
 - 不存密钥、证件号、银行卡等私密凭证；不用空参数调用工具试错。
 - 会话已被固定到某个 uid 时，`hdm_save` 本来就并入该 uid，不要试图另起新单元。
+- 参数报错就修参数本身，**别用填充值凑数绕过校验**（曾用 a1~j10 当关键词，污染标签与词表）。
+- 改共享记忆库索引前先确认没有别的会话在写：运行中插件的 registry 是启动时载入的内存副本，任何 save 都会把旧 label 与旧词表整份回写。
 
 ## 9. 同一编码与空闲整理
 

@@ -38,6 +38,10 @@ const REQUIRED_TOOL_KEYS = [
   "hdm_character_update.param.notes",
   "hdm_iam_update.description",
   "hdm_iam_update.param.content",
+  "hdm_imagery.description",
+  "hdm_imagery.param.action",
+  "hdm_imagery.param.term",
+  "hdm_imagery.param.notes",
 ];
 
 function readFile(name) {
@@ -67,11 +71,11 @@ test("prompts/zh 目录里恰好 6 个 .md 文件", () => {
 // 2026-11-19 补 IAM 写法要求（skill §5 三条 + guide §四 一行），预算再上调一次。
 // 2026-11-21 补「何时更新 IAM / 人物」触发清单（guide 5 类 + skill 3 条），上限同步上调。
 // 但上限仍设：静态 section 每次请求都进系统提示，膨胀要有人拦。
-test("system-guide.md 2500~5600 字节，skill.md 3000~6200 字节", () => {
+test("system-guide.md 2500~6800 字节，skill.md 3000~6800 字节", () => {
   const guide = byteSize("system-guide");
   const skill = byteSize("skill");
-  assert.ok(guide >= 2500 && guide <= 5600, `system-guide.md 字节数越界: ${guide}`);
-  assert.ok(skill >= 3000 && skill <= 6200, `skill.md 字节数越界: ${skill}`);
+  assert.ok(guide >= 2500 && guide <= 6800, `system-guide.md 字节数越界: ${guide}`);
+  assert.ok(skill >= 3000 && skill <= 6800, `skill.md 字节数越界: ${skill}`);
 });
 
 test("system-guide.md 含总览/工具/写作准则等必需小节", () => {
@@ -87,7 +91,7 @@ test("tools.md 含 5 个工具的 description 与必填参数键", () => {
     assert.match(text, new RegExp(`^${key}: `, "m"), `tools.md 缺少键行 ${key}`);
     assert.notEqual(getToolText(key), "", `getToolText("${key}") 为空`);
   }
-  for (const tool of ["hdm_save", "hdm_recall", "hdm_read", "hdm_character_update", "hdm_iam_update"]) {
+  for (const tool of ["hdm_save", "hdm_recall", "hdm_read", "hdm_character_update", "hdm_iam_update", "hdm_imagery"]) {
     assert.ok(getToolText(`${tool}.description`).length > 0, `${tool} 缺少 description`);
   }
 });

@@ -2,7 +2,7 @@
 // 追加时的关键词永远挤不进 top-12，索引从建单元那天起就不再更新。
 // 这条测试走真实的 saveConversationMemory 追加路径（临时母文件夹），修复前会真的失败。
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,10 +10,12 @@ import test from "node:test";
 import { resolveConfig } from "../lib/config.js";
 import { saveConversationMemory } from "../lib/conversation.js";
 import {
+  buildMemoryLabel,
   buildSnapshotText,
   commitDerivedSnapshot,
   createMemory,
   deriveSnapshotData,
+  labelTermsOf,
   mergeSnapshotForAppend,
   parseSnapshot,
 } from "../lib/memory.js";
@@ -42,6 +44,25 @@ const SECOND_INPUT = {
   source: "observed",
   importance: 3,
 };
+
+/** 与 memory.expectedMemoryLabel 同口径：按当前关键词重算的标签（测试里显式写出来做对照）。 */
+function labelAfterAppend(meta) {
+  return buildMemoryLabel({
+    date: meta.date,
+    seq: meta.seq,
+    level: meta.defaultLevel,
+    terms: labelTermsOf(meta.keywords),
+  });
+}
+
+async function exists(target) {
+  try {
+    await stat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 test("追加记忆时本次输入的关键词能进 top-12（顺序即权重）", async (t) => {
   const home = await mkdtemp(path.join(os.tmpdir(), "hdm-append-"));
@@ -162,8 +183,11 @@ test("P1-1 已派生的单元再保存：保留 L1/L0，只置 needsRederive", a
   const after = registry.get(first.meta.uid);
   assert.deepEqual(after.snapshots, [1, 2], "同日再保存不得删除派生档");
   assert.equal(after.defaultLevel, 1, "defaultLevel 不应被重置");
-  assert.equal(after.label, labelBefore, "文件夹前缀不变");
-  assert.equal(after.folder, folderBefore);
+  // 标签会跟着当前关键词重算（记忆编号不再冻结在首次保存那批词上），但派生档前缀 1_ 必须保留。
+  assert.ok(after.label.startsWith("1_"), `派生单元追加后前缀仍应是 1_，实际为 ${after.label}`);
+  assert.equal(after.label, labelAfterAppend(after), "追加后标签应等于按当前关键词重算的标签");  assert.notEqual(after.label, labelBefore, "追加后关键词变了，标签应随当前关键词更新");
+  assert.equal(after.folder, path.join(path.dirname(folderBefore), after.label), "folder 跟新标签一致");
+  assert.ok(await exists(folderBefore) === false, "旧标签文件夹应已改名");
   assert.equal(after.needsRederive, 1, "应置位 needsRederive=1");
   assert.equal(after.forget.d2, null, "派生时间戳清空，交给遗忘巡检重派生");
   assert.equal(after.forget.d5, null);
@@ -171,6 +195,10 @@ test("P1-1 已派生的单元再保存：保留 L1/L0，只置 needsRederive", a
 
   const level1 = await readFile(path.join(after.folder, "level1.txt"), "utf8");
   assert.ok(level1.length > 0, "原 L1 文件仍在（未被删除）");
+  // 改名后 L1 头部的「记忆编号」也要换成新标签，否则头部与文件夹名不一致。
+  assert.equal(parseSnapshot(level1).header["记忆编号"], after.label, "L1 头部编号应同步为新标签");
+  const level2Text = await readFile(path.join(after.folder, "level2.txt"), "utf8");
+  assert.equal(parseSnapshot(level2Text).header["记忆编号"], after.label, "L2 头部编号应同步为新标签");
   const onDisk = JSON.parse(await readFile(path.join(after.folder, "meta.json"), "utf8"));
   assert.equal(onDisk.needsRederive, 1, "meta.json 也要落盘该标记");
 });
@@ -398,4 +426,80 @@ test("旧文本没有「## 摘要」段时不崩，仍写出单文档", () => {
   });
   assert.equal((merged.text.match(/## 摘要/g) || []).length, 1, "补出唯一的 ## 摘要");
   assert.ok(merged.summary.includes("只有新要点"), `摘要应为本次输入，实际为 ${merged.summary}`);
+});
+
+/* ------------------------------------------------- 记忆编号（文件夹名）不能再漂移 */
+
+test("记忆编号：按 keyness 取词、整词不截断，且追加后随当前关键词更新", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "hdm-relabel-"));
+  t.after(async () => {
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+
+  const config = resolveConfig({ homeDir: home });
+  const registry = new Registry(home, config);
+  await registry.load();
+  const state = new StateStore(home);
+  await state.load();
+  const session = { id: "relabel-session", cwd: home };
+  const now = Date.now();
+
+  // 首次保存：关键词里混入长拉丁词，旧逻辑会把它切成 `dsh-plug` 这类碎片放进编号。
+  const first = await saveConversationMemory({
+    registry,
+    config,
+    home,
+    state,
+    session,
+    now,
+    input: {
+      summary: "用户要求把记忆编号里的关键词换成整词，不要再出现被截断的碎片。",
+      details: ["长词超过 24 字符时整词跳过"],
+      quotes: [],
+      keywords: ["记忆编号", "dsh-plugin-iot-thinking", "碎片", "整词", "关键词", "排序", "标签", "目录", "改名", "回归"],
+      people: [],
+      source: "observed",
+      importance: 3,
+    },
+  });
+
+  const label = first.meta.label;
+  assert.equal(label, labelAfterAppend(first.meta), "编号应等于按当前关键词重算的结果");
+  // 旧逻辑把长词按 8 字符切碎；新逻辑要么整词进编号，要么整词不进。
+  const longTerm = "dsh-plugin-iot-thinking";
+  const segments = label.replace(/^\d+_[\d-]+_\d+_/, "").split("_");
+  for (const segment of segments.filter(Boolean)) {
+    const truncated = longTerm.startsWith(segment) && segment !== longTerm;
+    assert.ok(!truncated, `编号里出现了被截断的碎片「${segment}」：${label}`);
+  }
+  assert.ok(label.includes(longTerm), `长词要么整词出现，实际编号为 ${label}`);
+  assert.ok(label.startsWith("2_"), "首次保存前缀为 2_");
+
+  // 追加一批全新关键词：编号必须跟着换，而不是留在首次保存那批词上。
+  const second = await saveConversationMemory({
+    registry,
+    config,
+    home,
+    state,
+    session,
+    now: now + 1000,
+    input: {
+      summary: "用户又要求编号随关键词更新：旧编号停在首次保存的词上是这次要修的问题。",
+      details: [],
+      quotes: [],
+      keywords: ["编号漂移", "追加", "重算", "文件夹名", "快照头", "一致性", "修复", "回归", "测试", "编号"],
+      people: [],
+      source: "observed",
+      importance: 3,
+    },
+  });
+
+  assert.equal(second.merged, true, "同一会话应追加到同一单元");
+  const after = registry.get(first.meta.uid);
+  assert.notEqual(after.label, label, "追加后关键词变了，编号必须重算");
+  assert.equal(after.label, labelAfterAppend(after), "编号应等于按当前关键词重算的结果");
+  assert.equal(after.folder, path.join(path.dirname(first.meta.folder), after.label), "folder 跟随新编号");
+  assert.equal(await exists(first.meta.folder), false, "旧编号文件夹应已改名");
+  const level2 = await readFile(path.join(after.folder, "level2.txt"), "utf8");
+  assert.equal(parseSnapshot(level2).header["记忆编号"], after.label, "L2 头部编号应同步");
 });

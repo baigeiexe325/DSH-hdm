@@ -462,3 +462,24 @@ test("检索档位下拉可改并提交 autoRecall.level；压缩前记忆开关
   assert.equal(byPath.get("compaction.memorize"), false);
   assert.ok(!byPath.has("autoRecall.enabled"), "未改动的召回总开关不应写入");
 });
+
+test("跨会话共享下拉可改并提交 sharing.level（同步打开 sharing.enabled）", async () => {
+  const runtime = makeRuntime();
+  const state = { view: readyView(readyValue) };
+  const configForms = fakeConfigForms(state);
+  const { registered } = await loadClient({ configForms }, runtime);
+
+  const first = runtime.render(registered.component({}));
+  const select = runtime.find(first, (node) => node.props?.["aria-label"] === "跨会话共享");
+  assert.ok(select, "应找到跨会话共享下拉");
+  assert.equal(select.props.value, "0", "默认关闭");
+  select.props.onChange({ target: { value: "2" } });
+
+  const second = runtime.render(registered.component({}));
+  const saveButton = runtime.find(second, (node) => node.props?.className === "hdm-btn primary");
+  await saveButton.props.onClick();
+
+  const byPath = new Map((state.ops ?? []).map((op) => [op.path.join("."), op.value]));
+  assert.equal(byPath.get("sharing.level"), 2);
+  assert.equal(byPath.get("sharing.enabled"), true);
+});

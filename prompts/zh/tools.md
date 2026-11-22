@@ -37,16 +37,30 @@ hdm_recall.description: 按关键词调取记忆。铁律：keywords 必填且 1
   每次命中 hitCount 增加（按本次命中词 keyness 之和 × 0.2 加权，不是固定 +1）；命中数超过 association.triggerCount（默认 4）时附带联想记忆。
   命中行若与人物名匹配，会附带 characters 摘录（USER 优先），可直接引用，不必再读档案文件。
   要用它为某个目标选方案（例如抓网页正文：用命令还是用用户浏览器）时，先把问题压成 3~8 个词表里的名词再检索，别整句搜索。
+  检索顺序（0.3.0）：先拿 keyness × 时间衰减排成的词表，在前 50 个词上模糊匹配；凑不够期望条数就进 50~100 并降低期望，一直循环到第 250 个词；还没找到就回退精确倒排细找。返回条数默认等于 keywords 个数（上限 12）。
 hdm_recall.param.keywords: 必填，1~12 个；用人物、项目、事件、专有名词，先给最关键的。
-hdm_recall.param.topK: 可选，1~10，默认 3。
+hdm_recall.param.topK: 可选，1~12；省略时等于 keywords 个数（上限 12）。
 hdm_recall.param.view: 可选，auto（默认，用 defaultLevel）/ 0 / 1 / 2；请求档不存在时回退最近可用档。
 hdm_recall.param.sameDayOf: 可选，某条记忆 uid；返回同一天的记忆，两边都写了 eventKey 时还要求 eventKey 相同。
 hdm_recall.param.boost: 可选，none（默认）/ usage / recency / pinned。
 hdm_recall.param.includeAssociations: 可选，布尔，默认 true；false 时不返回联想。
-hdm_recall.out.matches: 命中列表，含 uid、label、defaultLevel、level、path、higherLevels、weight、matchedKeywords、hitCount、characters、immortal、views。
+hdm_recall.out.matches: 命中列表，含 uid、label、defaultLevel、level、path、higherLevels、weight、matchedKeywords、hitCount、characters、imagery、immortal、views。imagery 是命中关键词里已建意象的条目（term/file/score），正文用 hdm_imagery read 自取。
 hdm_recall.out.associations: 联想列表，含 uid、label、level、path、gist、reason、chars。
 hdm_recall.out.associationTruncated: 联想是否因字数预算被截断。
 hdm_recall.out.viewFallback: 请求档不存在而回退时为 true。
+hdm_recall.out.search: 检索诊断，含 stage（coarse=词表模糊命中 / fine=精确倒排 / empty=都没找到）、expected、aim、windows、terms、fuzzyTerms。
+
+## hdm_imagery
+
+hdm_imagery.description: 意象层——以关键词为线索的经历记忆，与按时间的 memory/ 互补。铁律：write 的 term 必填；分数未达 imagery.threshold（默认 15）或承载记忆少于 imagery.minMemories（默认 2）直接报错，不写半成品。只追加不覆盖，词义与经历分开记；保存权重与人物档案同级。
+hdm_imagery.param.action: 可选，list（默认，列出已建意象）/ read / write。
+hdm_imagery.param.term: read/write 必填，关键词原词。
+hdm_imagery.param.meaning: write 可选，≤300 字；写“这个词对你意味着什么”，克制叙述，不写教程或百科。
+hdm_imagery.param.uids: write 可选，最多 5 个记忆 uid，写进「经历」与「记忆索引」。
+hdm_imagery.param.note: write 可选，本次经历的一句话笔记；只有 1 个 uid 时用这句。
+hdm_imagery.param.notes: write 可选，按 uid 给各自一句话（{uid: note}）。多个 uid 时优先用它；缺省则自动填该记忆的事件名与日期——不要给多条写同一句，否则「经历」会变成复读。
+hdm_imagery.out.items: list 时的条目数组（term/score/memories/file）。
+hdm_imagery.out.text: read 时的条目正文（受 imagery.maxReadChars 截断）。
 
 ## hdm_read
 
@@ -83,10 +97,12 @@ hdm_character_update.out.pending: 是否写入“待确认”冲突段。
 
 hdm_iam_update.description: 更新自传体记忆 IAM。铁律：content 必填，缺失直接报错；保留固定标题，超 iam.maxChars 拒绝并提示压缩。
   只在自我定位、长期目标、重要关系变化时更新；冲突写“待确认”，不要静默覆盖。
-  各节沿用记忆写法；「当前目标」分点降序，末点写下一步或阻塞。
+  各节职责互斥：我是谁=只有身份；我是怎样的人=只有性格与做事风格；人生阶段=里程碑罗列；当前目标=当前要达成的大目标；自我叙事=关于自己的常识（喜欢/讨厌什么、常在哪、平时做什么）；重要关系=与谁什么关系；长期主题与价值=价值排序。
+  写法：一句一事实、只写结论，不写过程与运行细节（报错、命令、路径清单、测试数字不进 IAM），能删的形容词都删；单节 ≤5 点、整文 ≤2000 字。
+  模式：整节改写用 replace_section（覆盖旧版本）；append 只在确实新增一条独立事实时用，且不要往「当前目标」追加——会让新旧目标并存、变成长篇大论。
 hdm_iam_update.param.content: 必填，要写入的正文。
-hdm_iam_update.param.mode: 可选，append（默认，追加）/ replace_section（替换指定章节）/ rewrite（重写全文）。
-hdm_iam_update.param.section: 可选，mode=replace_section 时必填，章节标题。
+hdm_iam_update.param.mode: 可选，replace_section（整节改写，推荐）/ append（默认，仅新增独立事实）/ rewrite（重写全文）。
+hdm_iam_update.param.section: 可选，mode=replace_section 时必填；职责见 description，记忆索引自动维护勿手改。
 hdm_iam_update.out.ok: 是否成功。
 hdm_iam_update.out.chars: 更新后 IAM 的字符数。
 hdm_iam_update.out.mode: 实际使用的更新模式。
