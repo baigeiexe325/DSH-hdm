@@ -193,9 +193,9 @@ test("organize: 修复 meta.json 漂移（快照/层级/文件夹前缀/关键�
   assert.deepEqual(meta.keywords[1], { term: "快照", keyness: 90, levels: [1] });
   assert.deepEqual(meta.keywords[2], { term: "主题01", keyness: 80, levels: [2] });
 
-  // 人称去重、hitCount 夹到上限 10
+  // 人称去重、hitCount 夹到上限 30
   assert.deepEqual(meta.people, ["用户", "助手"]);
-  assert.equal(meta.hitCount, 10);
+  assert.equal(meta.hitCount, 30);
 
   assert.equal(report.indexCount, 1, "修复后重建索引仍应找到这条记忆");
 });

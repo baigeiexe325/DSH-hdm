@@ -124,12 +124,11 @@ test("getSkillRegistration() 符合注册契约且正文来自 skill.md", () => 
   assert.equal(getSkillRegistration(), registration);
 });
 
-// IAM 写法要求必须写进 skill：各节沿用记忆写法，「当前目标」末点写下一步，新增「我是怎样的人」。
-test("skill.md 写清 IAM 写法（含当前目标与我是怎样的人）", () => {
+// IAM 写法要求必须写进 skill：各节沿用记忆写法、有「我是怎样的人」；0.3.1 起没有「当前目标」节。
+test("skill.md 写清 IAM 写法（我是怎样的人，且不再有当前目标）", () => {
   const text = readFile("skill");
   assert.match(text, /我是怎样的人/);
-  assert.match(text, /当前目标/);
-  assert.match(text, /末点写下一步/);
+  assert.doesNotMatch(text, /当前目标/);
   assert.match(text, /①②③/);
 });
 

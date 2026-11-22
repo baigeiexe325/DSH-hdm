@@ -79,10 +79,11 @@ hdm_read.out.truncated: 是否因 limit 截断。
 ## hdm_character_update
 
 hdm_character_update.description: 追加或更新人物档案。铁律：name 与 notes 必填，缺失直接报错；只追加不覆盖，冲突写“待确认”；USER 永远第一优先。
+  写法与意象同源且框架固定：一句一事实、只写可核对的事实与结论，不铺陈、不解释、不写百科与评价；只写进「基本 / 偏好与语气 / 关系与互动 / 待确认 / 矛盾」四节之一，不为某个话题另开新节。
   单文件超过 characters.maxChars 时拒绝写入并提示压缩，不会截断原文。
 hdm_character_update.param.name: 必填，人物名；用户本人写 USER。
-hdm_character_update.param.notes: 必填，本次要追加的事实，带日期与证据更佳。
-hdm_character_update.param.section: 可选，章节名（如“偏好”“关系”“联系方式”），默认“记录”。
+hdm_character_update.param.notes: 必填，本次要追加的一条事实或结论；一句一事实，带日期与证据更佳，不写评价与背景。
+hdm_character_update.param.section: 可选，基本（默认）/ 偏好与语气 / 关系与互动 / 待确认 / 矛盾；框架固定，不另开新节。
 hdm_character_update.param.aliases: 可选，别名数组，用于合并同一人物。
 hdm_character_update.param.confidence: 可选，0~1 置信度，默认 0.5。
 hdm_character_update.param.evidenceUid: 可选，证据记忆 uid。
@@ -97,9 +98,9 @@ hdm_character_update.out.pending: 是否写入“待确认”冲突段。
 
 hdm_iam_update.description: 更新自传体记忆 IAM。铁律：content 必填，缺失直接报错；保留固定标题，超 iam.maxChars 拒绝并提示压缩。
   只在自我定位、长期目标、重要关系变化时更新；冲突写“待确认”，不要静默覆盖。
-  各节职责互斥：我是谁=只有身份；我是怎样的人=只有性格与做事风格；人生阶段=里程碑罗列；当前目标=当前要达成的大目标；自我叙事=关于自己的常识（喜欢/讨厌什么、常在哪、平时做什么）；重要关系=与谁什么关系；长期主题与价值=价值排序。
+  各节职责互斥：我是谁=只有身份；我是怎样的人=只有性格与做事风格；人生阶段=里程碑罗列；自我叙事=关于自己的常识（喜欢/讨厌什么、常在哪、平时做什么）；重要关系=与谁什么关系；长期主题与价值=价值排序。
   写法：一句一事实、只写结论，不写过程与运行细节（报错、命令、路径清单、测试数字不进 IAM），能删的形容词都删；单节 ≤5 点、整文 ≤2000 字。
-  模式：整节改写用 replace_section（覆盖旧版本）；append 只在确实新增一条独立事实时用，且不要往「当前目标」追加——会让新旧目标并存、变成长篇大论。
+  模式：整节改写用 replace_section（覆盖旧版本）；append 只在确实新增一条独立事实时用，且不要往会随阶段变动的节追加——会让新旧结论并存、变成长篇大论。
 hdm_iam_update.param.content: 必填，要写入的正文。
 hdm_iam_update.param.mode: 可选，replace_section（整节改写，推荐）/ append（默认，仅新增独立事实）/ rewrite（重写全文）。
 hdm_iam_update.param.section: 可选，mode=replace_section 时必填；职责见 description，记忆索引自动维护勿手改。

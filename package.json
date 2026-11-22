@@ -1,6 +1,6 @@
 {
   "name": "dsh-hdm",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "HDM — Human-like Declarative Memory for DeepSeek Harness: file-based long-term memory with sequential snapshots, keyness retrieval, diary, IAM, character profiles, immortal memories, session-pinned continuation and idle-conversation auto-organizing.",
   "keywords": [
     "deepseek-harness",

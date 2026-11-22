@@ -317,12 +317,12 @@ test("HDM 集成：保存 -> 索引 -> 调取 -> 读取 -> 人物", async () => 
 
     const iamTool = env.tools.get("hdm_iam_update");
     const iamUpdated = await iamTool.execute(
-      { content: "当前在做一个本地记忆插件。", mode: "replace_section", section: "当前目标" },
+      { content: "常在本机工作，偏好先跑测试再报结论。", mode: "replace_section", section: "自我叙事" },
       { agent },
     );
     assert.equal(iamUpdated.ok ?? true, true);
     const iam = await readFile(path.join(home, "IAM.md"), "utf8");
-    assert.match(iam, /当前在做一个本地记忆插件/);
+    assert.match(iam, /偏好先跑测试再报结论/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -833,7 +833,7 @@ test("HDM 集成：IAM_Blank 模板（设置页远程面）+ hdmSettings 挂载"
     assert.equal(typeof service.maintenanceInfo, "function");
 
     const blank = await readFile(path.join(home, "IAM_Blank.md"), "utf8");
-    for (const heading of ["我是谁", "我是怎样的人", "人生阶段", "重要关系", "长期主题与价值", "当前目标", "自我叙事", "记忆索引"]) {
+    for (const heading of ["我是谁", "我是怎样的人", "人生阶段", "重要关系", "长期主题与价值", "自我叙事", "记忆索引"]) {
       assert.ok(blank.includes(`## ${heading}`), `IAM_Blank 缺少小节: ${heading}`);
     }
     // 独立文件：不得写「合并进 IAM」

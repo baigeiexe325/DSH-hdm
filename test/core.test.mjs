@@ -278,14 +278,24 @@ test("registry: upsert / lookup / bumpHit / 索引文件", async () => {
   const bumped = await registry.bumpHit(first.uid, 1234);
   assert.equal(bumped.hitCount, 1);
   assert.equal(bumped.lastHitAt, 1234);
-  registry.get(first.uid).hitCount = 9;
+  registry.get(first.uid).hitCount = 29;
   await registry.bumpHit(first.uid, 2000);
-  assert.equal(registry.get(first.uid).hitCount, 10);
+  assert.equal(registry.get(first.uid).hitCount, 30);
   await registry.bumpHit(first.uid, 3000);
-  assert.equal(registry.get(first.uid).hitCount, 10, "hitCount 上限 10");
+  assert.equal(registry.get(first.uid).hitCount, 30, "hitCount 上限 30");
   assert.equal(await registry.bumpHit("missing-uid"), undefined);
 
   await assert.rejects(() => registry.upsert({}), /uid/);
+});
+
+test("registry: people 只收字符串，对象型条目不会变成「[object Object]」", async () => {
+  const home = await makeHome();
+  const config = resolveConfig({});
+  const registry = new Registry(home, config);
+  await registry.load();
+  const meta = metaFixture(home, { extra: { people: ["用户", { name: "小林" }, "", "  ", "小林"] } });
+  await registry.upsert(meta);
+  assert.deepEqual(registry.get(meta.uid).people, ["用户", "小林"]);
 });
 
 test("registry: bumpHits 批量累加、只 save 一次、结果与逐条 bumpHit 一致", async () => {
@@ -298,7 +308,7 @@ test("registry: bumpHits 批量累加、只 save 一次、结果与逐条 bumpHi
   const b = metaFixture(homeBatch, { seq: 2 });
   await batch.upsert(a);
   await batch.upsert(b);
-  batch.get(a.uid).hitCount = 9; // 上限边界：两次批量后应停在 10
+  batch.get(a.uid).hitCount = 29; // 上限边界：两次批量后应停在 30
 
   let saves = 0;
   const originalSave = batch.save.bind(batch);
@@ -309,7 +319,7 @@ test("registry: bumpHits 批量累加、只 save 一次、结果与逐条 bumpHi
   const first = await batch.bumpHits([a.uid, a.uid, b.uid, "missing-uid"], 5000);
   assert.equal(saves, 1, "一次 bumpHits 只落盘一次");
   assert.equal(first.size, 2, "不存在的 uid 不进 Map");
-  assert.equal(first.get(a.uid), 10, "hitCount 上限 10");
+  assert.equal(first.get(a.uid), 30, "hitCount 上限 30");
   assert.equal(first.get(b.uid), 1);
   assert.equal(batch.get(a.uid).lastHitAt, 5000);
   assert.equal(batch.get(b.uid).lastHitAt, 5000);
@@ -322,7 +332,7 @@ test("registry: bumpHits 批量累加、只 save 一次、结果与逐条 bumpHi
   const b2 = metaFixture(homeSingle, { seq: 2 });
   await single.upsert(a2);
   await single.upsert(b2);
-  single.get(a2.uid).hitCount = 9;
+  single.get(a2.uid).hitCount = 29;
   for (const uid of [a2.uid, a2.uid, b2.uid]) await single.bumpHit(uid, 5000);
   assert.equal(batch.get(a.uid).hitCount, single.get(a2.uid).hitCount, "批量与逐条结果一致");
   assert.equal(batch.get(b.uid).hitCount, single.get(b2.uid).hitCount);

@@ -223,7 +223,85 @@ test("buildAutoRecall：命中人物的注入行附「人物：USER」摘录", a
     text: "用户那边还有什么",
   });
   assert.match(text, /可能相关的记忆/);
+  // 0.3.1：摘要之外要提示「hit 相关就用 hdm_read 读全文」，否则注入块给了 path 也没人去读。
+  assert.match(text, /摘要可能不足以判断，命中相关就用 hdm_read 读全文/);
   assert.match(text, /人物：USER（.*单人协作伙伴/);
+  // 0.3.1：人物命中要提醒「先读档案再判断」，摘录只是入口。
+  assert.match(text, /命中人物，先读人物档案再判断/);
+});
+
+test("recall：命中关键词已建意象时附释义概述（summary），不止给路径", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "hdm-recall-imagery-"));
+  await mkdir(path.join(home, "Imagery"), { recursive: true });
+  await writeFile(
+    path.join(home, "Imagery", "母文件夹.md"),
+    "# 意象：母文件夹\n\n## 释义\n母文件夹是 HDM 的全部。第二句不该进概述。\n\n## 经历\n- 2026-11-08 m-1\n",
+    "utf8",
+  );
+  await mkdir(path.join(home, "index"), { recursive: true });
+  await writeFile(
+    path.join(home, "index", "imagery.json"),
+    JSON.stringify({
+      version: 1,
+      entries: { 母文件夹: { term: "母文件夹", file: "Imagery/母文件夹.md", score: 40, memories: 3 } },
+    }),
+    "utf8",
+  );
+  const registry = fakeRegistry([mem("i-a", { keywords: [kw("母文件夹")] })]);
+  const result = await recall({
+    registry,
+    home,
+    config: baseConfig({ homeDir: home }),
+    keywords: ["母文件夹"],
+    now: NOW,
+  });
+  const [ref] = result.matches[0].imagery;
+  assert.equal(ref.term, "母文件夹");
+  assert.match(ref.summary, /母文件夹是 HDM 的全部。/);
+  assert.ok(!ref.summary.includes("第二句"), "概述只取释义首句");
+});
+
+test("buildAutoRecall：人物名进检索词，但「用户」这类泛称不进", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "hdm-recall-person-"));
+  await mkdir(path.join(home, "characters"), { recursive: true });
+  // 空壳档案：只有模板标题——召回仍要提示「先读档案」，不能因为摘录为空就当没命中。
+  await writeFile(path.join(home, "characters", "小林.md"), "# 小林 档案\n\n## 基本\n（待补充）\n", "utf8");
+  const person = mem("p-a", { keywords: [kw("插件")], people: ["小林"] });
+  const generic = mem("p-b", { keywords: [kw("插件")], people: ["用户"] });
+  await writeSnapshot(person, 2, "## 摘要\n小林在改插件。\n");
+  await writeSnapshot(generic, 2, "## 摘要\n用户在改插件。\n");
+  const registry = fakeRegistry([person, generic]);
+  const state = {
+    sessions: {},
+    getSession(id) {
+      return (this.sessions[id] ??= { recalledUids: [] });
+    },
+    async updateSession(id, patch) {
+      this.sessions[id] = { ...this.getSession(id), ...patch };
+    },
+  };
+  const text = await buildAutoRecall({
+    home,
+    config: { autoRecall: { enabled: true, topK: 5, minScore: 1, maxChars: 900 }, characters: { snippetChars: 200 } },
+    registry,
+    state,
+    sessionId: "s-person",
+    text: "小林 最近在做什么",
+  });
+  assert.match(text, /p-a/, "人物名命中应自动召回");
+  assert.match(text, /人物：小林（档案：.*小林\.md）/, "空档案也要给路径");
+  assert.match(text, /命中人物，先读人物档案再判断/);
+
+  const genericText = await buildAutoRecall({
+    home,
+    config: { autoRecall: { enabled: true, topK: 5, minScore: 1, maxChars: 900 }, characters: { snippetChars: 200 } },
+    registry,
+    state,
+    sessionId: "s-generic",
+    text: "用户 最近在做什么",
+  });
+  // 只有 2 条记忆时「用户」也没过半，硬编码泛称必须兜住：否则 auto-recall 会把它当词。
+  assert.equal(genericText, "", "「用户」是泛称，不进自动召回词表");
 });
 
 test("resolveSnapshotLevel：距离最近、同距取高、fallback 标记", () => {
@@ -828,4 +906,56 @@ test("保存提醒：距上次保存 60 分钟且已积累 3 个回合触发；�
 
   const fresh = await runNudgeStep({ lastMemoryToolAt: NOW - 2 * 60000, userTurnsSinceMemory: 3 });
   assert.doesNotMatch(fresh, /已持续多轮且尚未保存/);
+});
+
+test("gist：L2 派生 gist 并用首点+末点兜底；已派生 L1 与 immortal 跳过", async () => {
+  const { needsGist, deterministicGist, runGistPass } = await import("../lib/gist.js");
+  assert.equal(needsGist({ snapshots: [2] }), true);
+  assert.equal(needsGist({ snapshots: [2], immortal: true }), false);
+  assert.equal(needsGist({ snapshots: [1, 2] }), false, "已派生 L1 的记忆不管");
+  assert.equal(needsGist({ snapshots: [0, 1, 2] }), false);
+
+  const gist = deterministicGist("① 用户提出 5 项待办。② 中间细节不该保留。③ 下一步：对齐本地与远程。", 120);
+  assert.match(gist, /① 用户提出/);
+  assert.match(gist, /③ 下一步/);
+  assert.ok(!gist.includes("中间细节"), "确定性兜底只取首点+末点");
+
+  const home = await mkdtemp(path.join(tmpdir(), "hdm-gist-"));
+  const folder = path.join(home, "memory", "2026-11-22", "2_gist_unit");
+  await mkdir(folder, { recursive: true });
+  await writeFile(path.join(folder, "level2.txt"), "## 摘要\n① 用户要求加 gist。② 细节。③ 下一步：跑测试。\n\n## 细节\n- a\n", "utf8");
+  const meta = { uid: "m-gist-001", folder, snapshots: [2], defaultLevel: 2, updatedAt: 1000 };
+  const registry = { list: () => [meta], upsert: async () => meta };
+  const result = await runGistPass({ ctx: {}, home, config: { autoRecall: { enabled: true, level: 1 } }, registry, now: 5000 });
+  assert.equal(result.processed.length, 1);
+  assert.equal(meta.gist, "① 用户要求加 gist。③ 下一步：跑测试。");
+  assert.equal(meta.gistAt, 5000);
+});
+
+test("recall：L2 命中行优先注入 meta.gist，而不是截断摘要", async () => {
+  const memory = mem("g-a", {
+    keywords: [kw("用户")],
+    gist: "① 用户要 gist。③ 下一步：验证注入。",
+  });
+  await writeSnapshot(memory, 2, "## 摘要\n① 用户要 gist。② 中间。③ 下一步：验证注入。\n");
+  const registry = fakeRegistry([memory]);
+  const state = {
+    sessions: {},
+    getSession(id) {
+      return (this.sessions[id] ??= { recalledUids: [] });
+    },
+    async updateSession(id, patch) {
+      this.sessions[id] = { ...this.getSession(id), ...patch };
+    },
+  };
+  const text = await buildAutoRecall({
+    home: "",
+    config: { autoRecall: { enabled: true, topK: 2, minScore: 1, maxChars: 600 } },
+    registry,
+    state,
+    sessionId: "s-gist",
+    text: "用户 gist 怎么样",
+  });
+  assert.match(text, /① 用户要 gist。③ 下一步：验证注入。/);
+  assert.ok(!text.includes("摘要未派生"));
 });

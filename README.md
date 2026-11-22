@@ -2,7 +2,7 @@
 
 > 本地、纯文件、超长期的大语言模型陈述性记忆系统。给 DSH 一个可配置的「母文件夹」，像人一样按日期归档会话、整理、遗忘、联想和回忆。
 
-版本：0.3.0 · 包名：`dsh-hdm` · 无第三方运行时依赖 · 纯 ESM
+版本：0.3.1 · 包名：`dsh-hdm` · 无第三方运行时依赖 · 纯 ESM
 
 ---
 
@@ -16,7 +16,7 @@
 | 联想 | 高频记忆被调取时，附带少量相关记忆（同人/同日/同事件/共同关键词），总字数受限 |
 | 日记 | 每天 23:30 自动把当日记忆汇总成日记，启动时补写最近 7 天；模型不可用时走确定性摘要 |
 | 自传体记忆 | 母文件夹下的 `IAM.md`，首轮注入全文、每 6 轮注入短锚点、上下文压缩后重新注入 |
-| 人物档案 | `characters/` 下每人一份 `.md`，记录性格/偏好/爱好/语气；用户（USER）永远第一优先；只追加不覆盖，冲突标注「待确认 / 矛盾」。召回命中人物关键词时行内直接附档案摘录，首轮另注入「用户档案」一段 |
+| 人物档案 | `characters/` 下每人一份 `.md`；框架固定四节（基本 / 偏好与语气 / 关系与互动 / 待确认 / 矛盾），不另开新节。写法与意象同源：一句一事实、只写可核对的事实与结论，不铺陈、不写百科与评价。用户（USER）永远第一优先；只追加不覆盖，冲突标注「待确认 / 矛盾」。召回命中人物关键词时行内附档案摘录**并提示先读档案**，首轮另注入「用户档案」一段 |
 | 永久豁免 | 用户说「永远记住」、重要性 ≥5、或 30 天内被调取 ≥6 次的记忆永不压缩、不进遗忘流水线 |
 | 低使用率兜底 | 新会话自动接力上一段对话；之后每条用户消息自动召回；每 6 个用户回合轻提醒一次；上下文到 50% 提醒保存 |
 
@@ -49,6 +49,9 @@
 | `handoff.maxChars` | `2000` | 接力内容上限 |
 | `autoRecall.enabled` | `true` | 自动召回 |
 | `autoRecall.minScore` | `2` | 低于该分数不注入 |
+| `autoRecall.gistEnabled` | `true` | L2 派生 gist 并直接注入自动召回 |
+| `autoRecall.gistChars` | `120` | 单条 gist 字数上限 |
+| `autoRecall.gistRefreshMinutes` | `30` | gist 巡检间隔（分钟） |
 | `nudge.everyUserTurns` | `6` | 低使用率提醒间隔 |
 | `nudge.staleMinutes` | `45` | 距上次保存超过该分钟数且已积累 3 轮发言时补一次提醒（`0` 关闭）；防止「存完又干很久、那段工作没落盘」 |
 | `iam.maxChars` | `6000` | `IAM.md` 上限 |
@@ -69,6 +72,7 @@
 | `imagery.minMemories` | `2` | 关键词至少出现在几条记忆里才建意象 |
 | `imagery.injectOnRecall` | `true` | 召回命中已建意象时附条目路径 |
 | `imagery.maxReadChars` | `6000` | `hdm_imagery read` 单次返回字数上限 |
+| `imagery.maxSummaryChars` | `120` | 召回时附带的释义概述字数上限（取「释义」首句） |
 | `sharing.enabled` | `false` | 跨会话记忆共享总开关 |
 | `sharing.level` | `0` | `0` 关 / `1` 只共享活跃会话 / `2` 再加旧会话 uid |
 | `maintenance.provider` / `maintenance.model` | 空 | 后台维护模型，空则用默认模型 |
@@ -125,7 +129,7 @@
 | `hdm_save` | 保存一段记忆：`summary`、`keywords`（10–12，按重要性降序）、可选 `details`/`quotes`/`people`/`scene`/`event`/`emotion`/`source`/`importance`/`immortal`/`characters`/`relatedUids` |
 | `hdm_recall` | 按关键词调取：`keywords`、`topK`、`view`（auto/0/1/2）、`sameDayOf`、`boost`、`includeAssociations` |
 | `hdm_read` | 读指定记忆的指定快照：`uid`、`level`、`offset`、`limit` |
-| `hdm_character_update` | 更新人物档案：`name`、`notes`，可选 `section`/`aliases`/`confidence`/`evidenceUid`/`mode` |
+| `hdm_character_update` | 更新人物档案：`name`、`notes`，可选 `section`（基本 / 偏好与语气 / 关系与互动 / 待确认 / 矛盾）/`aliases`/`confidence`/`evidenceUid`/`mode` |
 | `hdm_iam_update` | 更新 `IAM.md`：`content`、`mode`（append/replace_section/rewrite）、`section` |
 | `hdm_organize` | 主动整理：修复 meta 漂移、清理临时文件、重建索引；`dryRun:true` 只预览 |
 | `hdm_backup` | 版本快照（存在母文件夹之外）：`action=status/snapshot/restore`；恢复必须 `confirm:true`，IAM/人物/记忆/日记原样还原 |
@@ -186,7 +190,7 @@
 - **定位**：`Imagery/` 下一个关键词一个 `.md`，记「这个词对我意味着什么」与相关经历；memory/ 按时间，Imagery 按关键词。
 - **门槛**：`score = (ΣhitCount + 3×immortal数) × (0.5 + keyness/10)`，默认 `imagery.threshold=15`。现库 252 个词里达标 12 个（IAM 94.6、HDM 82.6、plan 52.6、母文件夹 51.5、goal 39、我是怎样的人 38.5…）。
 - **写入**：`hdm_imagery(action=write, term, meaning, uids)`，不达标直接报错；md 只追加不覆盖，索引 `index/imagery.json` 可从 md 重建（`hdm_organize` 一并重建）。
-- **召回**：命中行带 `imagery` 字段（term/file/score），只给路径，正文用 `hdm_imagery read` 自取；`imagery.injectOnRecall` 可关。
+- **召回**：命中行带 `imagery` 字段（term/file/score/**summary**）；`summary` 是「释义」首句（≤`imagery.maxSummaryChars`，默认 120 字），够判断是否相关，正文仍用 `hdm_imagery read` 自取；`imagery.injectOnRecall` 可关。
 - 快照覆盖 `Imagery/`，母文件夹之外也存一份。
 
 ## 跨会话共享（0.3.0）
@@ -195,6 +199,42 @@
 - **活跃判定**：本进程 pre-step 心跳 `busyWindowMinutes`（默认 10）内，或 `lastUserAt` 在 `recentWindowMinutes`（默认 60）内；旧会话指 1h~24h。
 - **注入**：首轮与每个真实用户步追加 `===== 跨会话共享 =====`；L1 给 uid + 档位 + 摘要（≤200 字），L2 再给旧会话 uid（≤400 字，只给编号）；按 `state.sessions[id].sharedUids` 去重（最新 200），自身会话不注入自己。
 - **跨进程假设**：「正在工作」只能用本进程心跳近似，跨进程退化为 `lastUserAt`。
+
+## 自动召回的 gist（0.3.1）
+
+自动召回过去只塞 L2 摘要的前 120 字——而摘要按规范是「首点 + 末点（结论/遗留）」，**被截掉的恰恰是最有用的末点**。所以给还停在 L2 的记忆派生一条 gist：
+
+| 项 | 行为 |
+|---|---|
+| 谁需要 | `snapshots` 里只有 L2 的记忆；**已派生 L1/L0 的不管**（L1 本身就是要点），immortal 也不做 |
+| 存哪 | 记忆目录下 `gist.txt` + `meta.gist` / `meta.gistAt`；`gistAt >= updatedAt` 视为新鲜，不重写 |
+| 谁压 | 维护模型（≤`autoRecall.gistChars`，默认 120 字，要求保留「谁做了什么 + 结论 + 未完成」）；模型不可用时退回**确定性兜底**：取摘要首点 + 末点 |
+| 何时跑 | `startGistTimer` 每 `autoRecall.gistRefreshMinutes`（默认 30 分钟）巡检一次；档位 0 或 `autoRecall.enabled=false` 时直接跳过（没有消费者，不烧模型）；首轮延迟一个间隔，避免启动即调模型 |
+| 注入 | L2 命中优先用 `meta.gist`；没有 gist 才回退摘要前 120 字，并在末尾标「（摘要未派生，仅前段）」，让模型知道那不是全部 |
+
+## 豁免门槛提高（0.3.1）
+
+`hitCount` 现在是加权浮点（每次召回约 +2.2），原来的 3 次/6 次门槛太容易达到，调整为 ×3：
+
+| 配置 | 旧 | 新 |
+|---|---|---|
+| `forget.exemptRecallCount`（进 delay） | 3 | **9** |
+| `forget.autoImmortalRecallCount`（自动永久豁免） | 6 | **18** |
+| `MAX_HIT_COUNT`（计数上限，四处常量） | 10 | **30** |
+
+上限必须同步抬高：18 > 10 会让自动永久豁免**永远不可达**，规则等于被删掉。上限 30 约等于 14 次加权命中。
+
+## 召回块提示读全文（0.3.1）
+
+自动召回注入的每一块开头从「可能相关的记忆（仅供参考）」改为「可能相关的记忆（仅供参考；摘要可能不足以判断，命中相关就用 hdm_read 读全文）：」。
+
+起因是 2026-11-22 的一次自审：一整个长对话里自动召回注入 9 条 uid，`hdm_read` 被调用 **0 次**——所有判断都建立在 120 字摘要上，`path` 给了但没人去读。写提示比改数据结构便宜，先试这一条；若 `hdm_read` 仍然为 0，再考虑把摘要换成一两句结论或直接内联 L1。
+
+## IAM、人物与意象的 0.3.1 调整
+
+- **IAM 删掉「当前目标」节**：目标会频繁变动，写进自传体记忆只会让 IAM 反复膨胀且与记忆重复。固定标题从 8 个减到 7 个；`hdm_iam_update` 的 `section` 枚举同步收窄，旧 `IAM.md` 里残留的「当前目标」不再被锚点或模板补回。
+- **人物档案写作要求向意象看齐**：`CHARACTER_SECTIONS` 固定四节（基本 / 偏好与语气 / 关系与互动 / 待确认 / 矛盾），`hdm_character_update.section` 的枚举即为这四节；模板头写死写作要求（一句一事实、不铺陈、不写百科与评价），新建档案起就带约束。
+- **意象命中给概述**：`imageryRefs` 现在从条目的「释义」取首句（≤`imagery.maxSummaryChars`，默认 120 字）一起返回；`hdm_recall` 渲染与自动召回注入都显示「term——释义首句（路径）」，人物命中则追加「先读档案再判断」。
 
 ## 压缩前记忆（0.2.4）
 
@@ -219,9 +259,9 @@
 ## IAM 锚点、人物摘录与加权 hitCount（0.2.8）
 
 - **自我锚点取「首句 + 末句」且不漏节**：以前每节只取前两句，后追加到节尾的新事实永远进不了锚点。现在按三遍择优填充——① 富信息遍（每节首句+末句，最完整）；② 公平遍（每节只取末句，节尾优先，放不下的截尾补上）；③ 均分遍（预算按节平分，标题必现）。取覆盖节数最多的一遍，实机 400 字预算下 8 节全部出现。
-- **人物档案随召回同步**：命中行 `meta.people` 与查询词（含别名）匹配时，`hdm_recall` 结果与自动召回注入里都带 `characters: [{ name, path, excerpt }]`（每人 ≤`characters.snippetChars`，每行 ≤2 人）；首轮另注入 ≤200 字「用户档案」。由 `characters.injectOnRecall` 控制。
+- **人物档案随召回同步**：命中行 `meta.people` 与查询词（含别名）匹配时，`hdm_recall` 结果与自动召回注入里都带 `characters: [{ name, path, excerpt }]`（每人 ≤`characters.snippetChars`，每行 ≤2 人）；首轮另注入 ≤200 字「用户档案」。由 `characters.injectOnRecall` 控制。命中人物时注入块另行提醒「先读人物档案再判断」——摘录只是入口，不代替全文；档案只有模板标题（摘录为空）时也给路径。另：人物名本身不是关键词，改成「人物名也算检索词」——显式 `hdm_recall` 把 people 字面命中的记忆并入候选（不参与权重），自动召回把人物名当检索词，但「用户 / USER」这类出现在过半记忆里的泛称不进，免得注入块被刷满。
 - **hitCount 按 keyness 加权**：自动召回与手动 `hdm_recall` 的增量 = `Σ(本次命中词 keyness) × 0.2`（示例：命中 keyness 8.5 与 6.0 两个词 → +2.9），保留两位小数、上限 10；`hdm_read` 读全文仍固定 +1。`registry.bumpHits` 支持 `[{uid, delta}]` / `Map` 入参，`hdm_organize` 不再把小数截断。
-- **`/hdm-remember` 同轮更新 IAM 与人物**：投递的指令要求保存后立即自查长期状态——目标/关系/自我认知变化写 `hdm_iam_update`，人物偏好/承诺写 `hdm_character_update`；都没有时可跳过并一句话说明。
+- **`/hdm-remember` 同轮更新 IAM 与人物**：投递的指令要求保存后立即自查长期状态——身份/关系/自我认知变化写 `hdm_iam_update`，人物偏好/承诺写 `hdm_character_update`；都没有时可跳过并一句话说明。
 
 ## 版本快照（0.2.3，母文件夹之外）
 
