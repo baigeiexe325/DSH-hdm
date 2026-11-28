@@ -2,7 +2,7 @@
 
 > 本地、纯文件、超长期的大语言模型陈述性记忆系统。给 DSH 一个可配置的「母文件夹」，像人一样按日期归档会话、整理、遗忘、联想和回忆。
 
-版本：0.3.1 · 包名：`dsh-hdm` · 无第三方运行时依赖 · 纯 ESM
+版本：0.4.0 · 包名：`dsh-hdm` · 无第三方运行时依赖 · 纯 ESM
 
 ---
 
@@ -75,6 +75,12 @@
 | `imagery.maxSummaryChars` | `120` | 召回时附带的释义概述字数上限（取「释义」首句） |
 | `sharing.enabled` | `false` | 跨会话记忆共享总开关 |
 | `sharing.level` | `0` | `0` 关 / `1` 只共享活跃会话 / `2` 再加旧会话 uid |
+| `events.enabled` | `true` | 事件索引与 `Events/` 事件档案开关 |
+| `events.maxLines` | `400` | 单份事件档案行数上限，超了自动开第二份（`维护插件1.txt`） |
+| `events.maxReadChars` | `6000` | `reconception read` 事件档案的字数上限 |
+| `profileCompact.enabled` | `true` | IAM 与人物档案定期压缩开关 |
+| `profileCompact.hours` | `6` | 压缩间隔（小时） |
+| `profileCompact.minIntervalMinutes` | `60` | 最短间隔（分钟），防止配置写小后反复调模型 |
 | `maintenance.provider` / `maintenance.model` | 空 | 后台维护模型，空则用默认模型 |
 | `maintenance.maxTokens` | `100000` | 后台调用输出预算；宿主会按模型窗口向下钳制，填大了不报错 |
 | `maintenance.timeoutSeconds` | `600` | 单次后台调用超时（秒） |
@@ -133,6 +139,8 @@
 | `hdm_iam_update` | 更新 `IAM.md`：`content`、`mode`（append/replace_section/rewrite）、`section` |
 | `hdm_organize` | 主动整理：修复 meta 漂移、清理临时文件、重建索引；`dryRun:true` 只预览 |
 | `hdm_backup` | 版本快照（存在母文件夹之外）：`action=status/snapshot/restore`；恢复必须 `confirm:true`，IAM/人物/记忆/日记原样还原 |
+| `hdm_imagery` | 意象层（关键词线索记忆）：`action=list/read/write`；`write` 需 `term`，质量分达 `imagery.threshold` 且 ≥`imagery.minMemories` 条记忆承载才允许写 |
+| `reconception` | 档案调取：`kind=event/character/keyword`、`term`、`mode=index/read`；与 `hdm_recall` 分工——recall 查记忆单元，reconception 调取 `Events/`、`characters/`、`Imagery/` 正文 |
 
 ## 上一段对话选谁（0.2.6）
 
@@ -235,6 +243,26 @@
 - **IAM 删掉「当前目标」节**：目标会频繁变动，写进自传体记忆只会让 IAM 反复膨胀且与记忆重复。固定标题从 8 个减到 7 个；`hdm_iam_update` 的 `section` 枚举同步收窄，旧 `IAM.md` 里残留的「当前目标」不再被锚点或模板补回。
 - **人物档案写作要求向意象看齐**：`CHARACTER_SECTIONS` 固定四节（基本 / 偏好与语气 / 关系与互动 / 待确认 / 矛盾），`hdm_character_update.section` 的枚举即为这四节；模板头写死写作要求（一句一事实、不铺陈、不写百科与评价），新建档案起就带约束。
 - **意象命中给概述**：`imageryRefs` 现在从条目的「释义」取首句（≤`imagery.maxSummaryChars`，默认 120 字）一起返回；`hdm_recall` 渲染与自动召回注入都显示「term——释义首句（路径）」，人物命中则追加「先读档案再判断」。
+
+## 事件档案 Events（0.4.0）
+
+记忆按时间、意象按关键词，事件按「这类事」。一条事件 = 一段跨天跨会话的经历，不是精确标题：
+
+- **事件名宽泛**：`维护插件` 含维护/更新 HDM 与 LOT 等插件；`和用户聊天` 含聊哲学、聊日常。但 `维护 HDM 插件` 与 `生成 HDM 审视报告` 是不同事件（slug 不同）。
+- **数据形态**：`<home>/Events/<事件名>.txt` 是权威，`index/events.json` 可丢可重建。
+- **行数上限**：单份超过 `events.maxLines`（默认 400）时由模块自己开第二份 `维护插件1.txt`；调用方不得自带序号，`维护插件` 与 `维护插件1` 视为不同事件。
+
+配套新工具 **`reconception`**（只读）：`kind=event/character/keyword` + `term` + `mode=index/read`。与 `hdm_recall` 分工——recall 检索记忆单元，reconception 调取已写下的成文档案（`Events/`、`characters/`、`Imagery/`）；未命中返回空列表而不是报错。
+
+## 档案定期压缩（0.4.0）
+
+IAM 与人物档案每 `profileCompact.hours`（默认 6 小时）用维护模型写短一点，最短间隔 `profileCompact.minIntervalMinutes`（默认 60）防止反复调模型。
+
+与 gist/forget 分开的原因：那两个管记忆快照，IAM 与人物是「长期身份与关系」，压缩原则完全不同（同义替换、同方面合并、**保留全部节**）。
+
+- **只压缩、不改事实**：标题与节结构、日期前缀、证据/置信度标注必须保留。
+- **校验不过就整轮放弃**：缺节、串味、变长都不写盘。
+- 写盘前 `snapshotIfChanged` 先备份，与其它写入路径一致。
 
 ## 压缩前记忆（0.2.4）
 

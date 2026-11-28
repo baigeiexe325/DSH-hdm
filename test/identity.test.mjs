@@ -66,7 +66,9 @@ test("「我是怎样的人」紧跟「我是谁」，模板/空白模板/固定
   assert.equal(blank.indexOf("我是怎样的人"), blank.indexOf("我是谁") + 1, "空白模板里新节也紧跟「我是谁」");
 
   // 写作标准落进模板顶部，读 IAM 即见，不只依赖 skill 注入。
-  assert.match(IAM_TEMPLATE, /①②③/);
+  // 2026-11-28：写作规范对齐新版指南——不再要求分点与 ①②③ 编号，只留「一句一事实、只写结论」。
+  assert.match(IAM_TEMPLATE, /一句一事实/);
+  assert.doesNotMatch(IAM_TEMPLATE, /①②③/);
   // 0.3.1：IAM 不再有「当前目标」节，模板/固定标题/空白模板三处都不该出现。
   assert.ok(!REQUIRED.includes("当前目标"));
   assert.ok(!("当前目标" in extractSections(IAM_TEMPLATE)));

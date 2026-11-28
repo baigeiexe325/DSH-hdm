@@ -21,6 +21,8 @@ const PROMPT_FILES = [
   "diary",
   "compact",
   "idle-organize",
+  "profile-compact",
+  "reconception",
 ];
 
 const PLACEHOLDER = /TODO|占位|待补|FIXME|XXX/;
@@ -52,30 +54,40 @@ function byteSize(name) {
   return fs.statSync(path.join(PROMPTS, `${name}.md`)).size;
 }
 
-test("prompts/zh 下 6 个提示词文件齐备且非空", () => {
+test("prompts/zh 下 8 个提示词文件齐备且非空", () => {
   const missing = PROMPT_FILES.filter((name) => {
     const file = path.join(PROMPTS, `${name}.md`);
     return !fs.existsSync(file) || !fs.statSync(file).isFile() || byteSize(name) === 0;
   });
   assert.deepEqual(missing, []);
-  assert.equal(PROMPT_FILES.length, 6);
+  assert.equal(PROMPT_FILES.length, 8);
 });
 
-// forget / nudge / handoff 三份提示词已删除（正文不再从文件加载），目录里只该剩这 6 份。
-test("prompts/zh 目录里恰好 6 个 .md 文件", () => {
+// forget / nudge / handoff 三份提示词已删除（正文不再从文件加载）；0.4.0 新增 profile-compact 与 reconception。
+test("prompts/zh 目录里恰好 8 个 .md 文件", () => {
   const files = fs.readdirSync(PROMPTS).filter((file) => file.endsWith(".md")).sort();
-  assert.deepEqual(files, ["compact.md", "diary.md", "idle-organize.md", "skill.md", "system-guide.md", "tools.md"]);
+  assert.deepEqual(files, [
+    "compact.md",
+    "diary.md",
+    "idle-organize.md",
+    "profile-compact.md",
+    "reconception.md",
+    "skill.md",
+    "system-guide.md",
+    "tools.md",
+  ]);
 });
 
 // 0.2.0 起 system-guide 增加「同一编码与空闲整理」一节（约 450 字节），skill 增加 9.5 一节；
 // 2026-11-19 补 IAM 写法要求（skill §5 三条 + guide §四 一行），预算再上调一次。
 // 2026-11-21 补「何时更新 IAM / 人物」触发清单（guide 5 类 + skill 3 条），上限同步上调。
+// 2026-11-28（0.4.0）补事件索引章节（含宽泛事件名示例）与新写作准则，上限 6800 → 7600。
 // 但上限仍设：静态 section 每次请求都进系统提示，膨胀要有人拦。
-test("system-guide.md 2500~6800 字节，skill.md 3000~6800 字节", () => {
+test("system-guide.md 2500~7600 字节，skill.md 3000~7600 字节", () => {
   const guide = byteSize("system-guide");
   const skill = byteSize("skill");
-  assert.ok(guide >= 2500 && guide <= 6800, `system-guide.md 字节数越界: ${guide}`);
-  assert.ok(skill >= 3000 && skill <= 6800, `skill.md 字节数越界: ${skill}`);
+  assert.ok(guide >= 2500 && guide <= 7600, `system-guide.md 字节数越界: ${guide}`);
+  assert.ok(skill >= 3000 && skill <= 7600, `skill.md 字节数越界: ${skill}`);
 });
 
 test("system-guide.md 含总览/工具/写作准则等必需小节", () => {
@@ -125,11 +137,11 @@ test("getSkillRegistration() 符合注册契约且正文来自 skill.md", () => 
 });
 
 // IAM 写法要求必须写进 skill：各节沿用记忆写法、有「我是怎样的人」；0.3.1 起没有「当前目标」节。
+// 2026-11-28：写作规范统一为「一句一事实、只写结论」，不再要求分点与 ①②③ 编号，断言随之取消。
 test("skill.md 写清 IAM 写法（我是怎样的人，且不再有当前目标）", () => {
   const text = readFile("skill");
   assert.match(text, /我是怎样的人/);
   assert.doesNotMatch(text, /当前目标/);
-  assert.match(text, /①②③/);
 });
 
 // 让模型更倾向更新 IAM：触发清单必须写进静态 guide 与 skill，不能只靠工具描述。

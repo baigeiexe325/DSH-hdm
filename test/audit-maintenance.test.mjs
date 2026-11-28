@@ -63,7 +63,8 @@ test("B: hdm_* 工具 parameters/output.schema 形状合法（无 required:false
   });
   assert.ok(tools.length >= 6, "应注册 6 个 hdm_* 工具");
   for (const tool of tools) {
-    assert.match(tool.name, /^hdm_/);
+    // 0.4.0 起除 hdm_* 还有一个按需求命名的 `reconception`（档案调取），同样要求 schema 合规。
+    assert.match(tool.name, /^(hdm_|reconception$)/);
     assertObjectSchema(tool.parameters, `${tool.name}.parameters`);
     assertObjectSchema(tool.output.schema, `${tool.name}.output.schema`);
     assert.equal(tool.output.schema.required, undefined, `${tool.name} output.schema 顶层不得有 required`);
@@ -124,7 +125,10 @@ test("B: execute 返回的每个字段都在 output.schema.properties 中声明"
     verify("hdm_read", read);
     assert.equal(read.ok, true);
 
-    const iam = await tools.get("hdm_iam_update").execute({ content: "- 检修记录一条", mode: "append" }, exec);
+    // append 必须显式指定固定节：无 section 会落到「记忆索引」节并被 syncIamIndex 覆盖（0.3.2 起拒绝）。
+    const iam = await tools
+      .get("hdm_iam_update")
+      .execute({ content: "- 检修记录一条", mode: "append", section: "自我叙事" }, exec);
     verify("hdm_iam_update", iam);
     assert.equal(iam.ok, true);
 

@@ -10,11 +10,11 @@ import test from "node:test";
 import { resolveConfig } from "../lib/config.js";
 import { saveConversationMemory } from "../lib/conversation.js";
 import {
-  buildMemoryLabel,
   buildSnapshotText,
   commitDerivedSnapshot,
   createMemory,
   deriveSnapshotData,
+  expectedMemoryLabel,
   labelTermsOf,
   mergeSnapshotForAppend,
   parseSnapshot,
@@ -40,19 +40,14 @@ const SECOND_INPUT = {
   quotes: [],
   keywords: ["预算", "超时", "降级", "关键词", "追加", "快照", "摘要", "排序", "权重", "设置"],
   people: [],
-  event: "HDM 预算与超时",
+  event: "HDM 空闲整理",
   source: "observed",
   importance: 3,
 };
 
-/** 与 memory.expectedMemoryLabel 同口径：按当前关键词重算的标签（测试里显式写出来做对照）。 */
+/** 与 memory.expectedMemoryLabel 同口径：按当前关键词与事件重算的标签。 */
 function labelAfterAppend(meta) {
-  return buildMemoryLabel({
-    date: meta.date,
-    seq: meta.seq,
-    level: meta.defaultLevel,
-    terms: labelTermsOf(meta.keywords),
-  });
+  return expectedMemoryLabel(meta);
 }
 
 async function exists(target) {
@@ -265,7 +260,7 @@ const THIRD_INPUT = {
   quotes: ["同一天的追加记忆要直接在原文基础上改"],
   keywords: ["原地改写", "单文档", "追加", "摘要", "去重", "段落", "结构", "刷新", "合并", "统计"],
   people: [],
-  event: "HDM 原地追加",
+  event: "HDM 空闲整理",
   source: "observed",
   importance: 3,
 };
@@ -467,7 +462,7 @@ test("记忆编号：按 keyness 取词、整词不截断，且追加后随当�
   assert.equal(label, labelAfterAppend(first.meta), "编号应等于按当前关键词重算的结果");
   // 旧逻辑把长词按 8 字符切碎；新逻辑要么整词进编号，要么整词不进。
   const longTerm = "dsh-plugin-iot-thinking";
-  const segments = label.replace(/^\d+_[\d-]+_\d+_/, "").split("_");
+  const segments = label.replace(/^\d+_[\d-]+_[a-z0-9]+_\d+_[^_]+_/, "").split("_");
   for (const segment of segments.filter(Boolean)) {
     const truncated = longTerm.startsWith(segment) && segment !== longTerm;
     assert.ok(!truncated, `编号里出现了被截断的碎片「${segment}」：${label}`);

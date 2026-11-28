@@ -120,9 +120,15 @@ test("config: 默认值、合并覆盖、~ 展开", () => {
   assert.equal(expandHome("~"), os.homedir());
 });
 
-test("config: 未知键与类型/范围错误可读", () => {
-  assert.throws(() => resolveConfig({ nope: 1 }), /未知配置键: nope/);
-  assert.throws(() => resolveConfig({ save: { nope: 1 } }), /未知配置键: save\.nope/);
+test("config: 未知键告警并丢弃，类型/范围错误可读", () => {
+  // 用户拍板：未知键（升级残留/拼错）不再让整个插件静默消失——告警、丢弃该键、其余配置照常生效。
+  const warns = [];
+  const loose = resolveConfig({ nope: 1, save: { nope: 1 } }, { logger: { warn: (line) => warns.push(String(line)) } });
+  assert.deepEqual([...loose.unknownKeys].sort(), ["nope", "save.nope"]);
+  assert.equal("nope" in loose.save, false, "未知键必须被丢弃");
+  assert.equal(loose.save.threshold, 0.5, "其余配置保持默认并照常生效");
+  assert.equal(warns.length, 2, "每个未知键一条 warn");
+  assert.ok(warns.every((line) => /不存在，已忽略/.test(line)), JSON.stringify(warns));
   assert.throws(() => resolveConfig({ save: { threshold: "0.5" } }), /save\.threshold.*number/);
   assert.throws(() => resolveConfig({ recall: { topK: 99 } }), /recall\.topK.*范围/);
   assert.throws(() => resolveConfig({ recall: { topK: 1.5 } }), /整数/);
@@ -228,16 +234,29 @@ test("paths: parseMemoryFolderName", () => {
     date: "2026-11-07",
     seq: 1,
     keywords: ["用户", "项目A", "调试"],
+    format: "legacy",
   });
   assert.deepEqual(parseMemoryFolderName("0_2026-01-02_1002_关键词"), {
     level: 0,
     date: "2026-01-02",
     seq: 1002,
     keywords: ["关键词"],
+    format: "legacy",
+  });
+  // 新格式：<level>_<date>_<session8>_<serial2>_<event>_<kw...>
+  assert.deepEqual(parseMemoryFolderName("2_2026-11-07_a1b2c3d4_02_维护插件_用户_调试"), {
+    level: 2,
+    date: "2026-11-07",
+    session: "a1b2c3d4",
+    serial: 2,
+    event: "维护插件",
+    keywords: ["用户", "调试"],
+    format: "new",
   });
   assert.equal(parseMemoryFolderName("bad-name"), null);
   assert.equal(parseMemoryFolderName("3_2026-11-07_001_x"), null);
   assert.equal(parseMemoryFolderName("2_2026-02-30_001_x"), null);
+  assert.equal(parseMemoryFolderName("2_2026-11-07_a1b2c3d4_00_事件"), null, "serial 00 不合法");
 });
 
 // ------------------------------------------------------------------ registry
@@ -470,7 +489,8 @@ test("memory: createMemory 只写 L2+meta、文件夹名与稳定 uid", async ()
   assert.equal(meta.defaultLevel, 2);
   assert.deepEqual(meta.snapshots, [2]);
   assert.equal(meta.seq, 1);
-  assert.ok(meta.label.startsWith("2_2026-11-07_001_"));
+  assert.equal(meta.serial, 1);
+  assert.ok(meta.label.startsWith("2_2026-11-07_sess1_01_插件加载"), "新格式前缀：等级_日期_会话_序号_事件");
   assert.ok(meta.folder.endsWith(meta.label));
   assert.ok(meta.folder.includes(path.join("memory", "2026-11-07")));
   assert.equal(meta.sessionId, "sess-1");
@@ -514,7 +534,7 @@ test("memory: createMemory 只写 L2+meta、文件夹名与稳定 uid", async ()
     now,
   });
   assert.ok(third.meta.label.length <= config.memory.filenameMaxChars);
-  assert.match(third.meta.label, /^2_2026-11-07_003_/);
+  assert.match(third.meta.label, /^2_2026-11-07_sess1_03_未分类事件/);
 });
 
 test("memory: keyness 因子（顺序/摘要/人物/频率/IDF/专有名词/场景）", async () => {
@@ -594,7 +614,7 @@ test("memory: L2 → L1（摘要≤200、细节≤3、无原话、改名、冻�
   const committed = await commitDerivedSnapshot({ registry, meta, data, now: now2 });
   assert.deepEqual(committed.snapshots, [1, 2]);
   assert.equal(committed.defaultLevel, 1);
-  assert.ok(committed.label.startsWith("1_2026-11-07_001"));
+  assert.ok(committed.label.startsWith("1_2026-11-07_sessl1_01"));
   assert.equal(committed.forget.d2, now2);
   assert.equal(await exists(oldFolder), false, "文件夹前缀 2_ → 1_");
   assert.equal(committed.folder, path.join(home, "memory", "2026-11-07", committed.label));
@@ -644,7 +664,7 @@ test("memory: L1 → L0（摘要≤120、无细节、改名、冻结 L1）", asy
   const committed = await commitDerivedSnapshot({ registry, meta, data: data0, now: now3 });
   assert.deepEqual(committed.snapshots, [0, 1, 2]);
   assert.equal(committed.defaultLevel, 0);
-  assert.ok(committed.label.startsWith("0_2026-11-07_001"));
+  assert.ok(committed.label.startsWith("0_2026-11-07_sessl0_01"));
   assert.equal(committed.forget.d5, now3);
   assert.equal(await readFile(path.join(committed.folder, "level1.txt"), "utf8"), l1Before, "L1 冻结不变");
   const entries = (await readdir(committed.folder)).sort();
@@ -795,6 +815,10 @@ test("state: SessionState 默认值、持久化与损坏容错", async () => {
     pendingContextReinject: false,
     pendingCompactMemory: null,
     lastCompactError: null,
+    // 0.4.0：跨会话共享改成「save 入队 gist，宿主消息轮投递」，所以会话状态多了三项。
+    sharingQueue: [],
+    pendingSharing: false,
+    sharingDeliveredAt: null,
     activity: [],
   });
   assert.deepEqual(Object.keys(DEFAULT_SESSION), Object.keys(session));

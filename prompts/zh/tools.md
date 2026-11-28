@@ -62,6 +62,17 @@ hdm_imagery.param.notes: write 可选，按 uid 给各自一句话（{uid: note}
 hdm_imagery.out.items: list 时的条目数组（term/score/memories/file）。
 hdm_imagery.out.text: read 时的条目正文（受 imagery.maxReadChars 截断）。
 
+## reconception
+
+reconception.description: 档案调取入口——按「事件 / 人物 / 关键词」三类取回已成文的档案（`Events/<事件名>.txt`、`characters/<人物>.md`、`Imagery/<词>.md`）。铁律：`kind` 必填；只读，不写任何文件。与 `hdm_recall` 分工：recall 检索「记忆单元」（摘要/档位/keyness），reconception 调取「档案」正文；先 index 看有哪些档案与关联 uid，再 read 读正文。事件名是宽泛的：`维护插件` 包含维护/更新 HDM、更新 LOT 等插件，`和用户聊天` 包含聊哲学、聊日常。
+reconception.param.kind: 必填，event（事件档案）/ character（人物档案）/ keyword（关键词意象条目）。
+reconception.param.term: 事件名（可宽泛）/ 人物名或别名 / 关键词；kind=event 的 index 模式可省略，其余必填；缺失直接报错。
+reconception.param.mode: 可选，index（默认，列出命中的档案与关联记忆 uid）/ read（读档案正文，受 reconception.maxReadChars）。
+reconception.out.matches: 命中档案数组，含 file（相对母文件夹的路径）、uids、chars、title。
+reconception.out.text: read 模式的正文（受 reconception.maxReadChars 截断）。
+reconception.out.truncated: read 是否被截断。
+reconception.out.relatedUids: 本次命中档案关联的记忆 uid，可直接喂给 hdm_read。
+
 ## hdm_read
 
 hdm_read.description: 读取指定记忆的某个快照。铁律：uid 必填，缺失直接报错；只读，不改文件。
@@ -100,10 +111,10 @@ hdm_iam_update.description: 更新自传体记忆 IAM。铁律：content 必填�
   只在自我定位、长期目标、重要关系变化时更新；冲突写“待确认”，不要静默覆盖。
   各节职责互斥：我是谁=只有身份；我是怎样的人=只有性格与做事风格；人生阶段=里程碑罗列；自我叙事=关于自己的常识（喜欢/讨厌什么、常在哪、平时做什么）；重要关系=与谁什么关系；长期主题与价值=价值排序。
   写法：一句一事实、只写结论，不写过程与运行细节（报错、命令、路径清单、测试数字不进 IAM），能删的形容词都删；单节 ≤5 点、整文 ≤2000 字。
-  模式：整节改写用 replace_section（覆盖旧版本）；append 只在确实新增一条独立事实时用，且不要往会随阶段变动的节追加——会让新旧结论并存、变成长篇大论。
+  模式：整节改写用 replace_section（覆盖旧版本）；append 必须同时给 section（无 section 会被拒绝——追加到文末等于落进「记忆索引」节，下一次同步索引会覆盖），且不要往会随阶段变动的节追加——会让新旧结论并存、变成长篇大论。
 hdm_iam_update.param.content: 必填，要写入的正文。
 hdm_iam_update.param.mode: 可选，replace_section（整节改写，推荐）/ append（默认，仅新增独立事实）/ rewrite（重写全文）。
-hdm_iam_update.param.section: 可选，mode=replace_section 时必填；职责见 description，记忆索引自动维护勿手改。
+hdm_iam_update.param.section: mode=append 与 replace_section 时必填（rewrite 可省）；职责见 description，记忆索引自动维护勿手改。
 hdm_iam_update.out.ok: 是否成功。
 hdm_iam_update.out.chars: 更新后 IAM 的字符数。
 hdm_iam_update.out.mode: 实际使用的更新模式。

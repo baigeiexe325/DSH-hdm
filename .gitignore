@@ -27,6 +27,17 @@ tools/docgen*.py
 tools/_dump_texts.mjs
 tools/_split_prompts.py
 
+# 文档生成的中间产物与本地渲染器（依赖 Python，不进公开仓库）
+tools/_draft-*.md
+tools/_prompts.json
+tools/_skill.before.md
+tools/assemble_docs.py
+tools/md2docx.py
+tools/make-prompts-docx.py
+
+# 一次性数据迁移脚本（已完成，属开发历史）
+tools/merge-events.mjs
+
 # 生成的文档（二进制，可按需重新生成）
 *.docx
 HDM-提示词改动-待实装.txt

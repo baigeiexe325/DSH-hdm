@@ -10,6 +10,7 @@ import { resolveConfig } from "../lib/config.js";
 import { Registry } from "../lib/registry.js";
 import { StateStore } from "../lib/state.js";
 import { readPointer, writePointer } from "../lib/migrate.js";
+import { waitForBackgroundForget } from "../lib/forget.js";
 import { pendingActivity } from "../lib/idle.js";
 
 // 避免测试触碰真实主目录里的指针文件。
@@ -278,7 +279,7 @@ test("HDM 集成：保存 -> 索引 -> 调取 -> 读取 -> 人物", async () => 
     assert.match(level2, /顺序快照/);
     assert.equal((await stat(path.join(saved.folder, "level1.txt")).catch(() => null)), null);
     assert.equal((await stat(path.join(saved.folder, "level0.txt")).catch(() => null)), null);
-    assert.match(path.basename(saved.folder), /^2_\d{4}-\d{2}-\d{2}_\d{3}_/);
+    assert.match(path.basename(saved.folder), /^2_\d{4}-\d{2}-\d{2}_[a-z0-9]{1,8}_\d{2}_/);
 
     const meta = await readJson(path.join(saved.folder, "meta.json"));
     assert.equal(meta.uid, saved.uid);
@@ -340,15 +341,24 @@ test("HDM 集成：第 2 天派生 L1、第 5 天派生 L0、L2 冻结、文件�
     const forget = env.commands.get("hdm-forget");
     const keywordQuery = ["项目", "架构", "决策", "会议", "结论", "风险"];
 
-    const day2 = await withTimeOffset(3, () => forget.handler({ rawInput: "all" }));
-    assert.match(day2.text, /遗忘巡检完成/);
+    // P2-4：/hdm-forget 改为后台执行、立即返回；测试等后台这一轮跑完再断言快照。
+    const day2 = await withTimeOffset(3, async () => {
+      const result = await forget.handler({ rawInput: "all" });
+      await waitForBackgroundForget();
+      return result;
+    });
+    assert.match(day2.text, /已排入后台/);
     const folder1 = await findFolder(home, saved.date ?? saved.label.match(/\d{4}-\d{2}-\d{2}/)[0], 1);
     assert.ok(await stat(path.join(folder1, "level1.txt")));
     assert.equal(await readFile(path.join(folder1, "level2.txt"), "utf8"), level2Before);
     assert.equal(await stat(path.join(folder1, "level0.txt")).catch(() => null), null);
 
-    const day5 = await withTimeOffset(6, () => forget.handler({ rawInput: "all" }));
-    assert.match(day5.text, /遗忘巡检完成/);
+    const day5 = await withTimeOffset(6, async () => {
+      const result = await forget.handler({ rawInput: "all" });
+      await waitForBackgroundForget();
+      return result;
+    });
+    assert.match(day5.text, /已排入后台/);
     const folder0 = await findFolder(home, saved.label.match(/\d{4}-\d{2}-\d{2}/)[0], 0);
     assert.ok(await stat(path.join(folder0, "level0.txt")));
     assert.equal(await readFile(path.join(folder0, "level2.txt"), "utf8"), level2Before);
@@ -382,7 +392,10 @@ test("HDM 集成：永久豁免不参与遗忘", async () => {
     assert.match(saved.next, /永久豁免/, "保存时 immortal:true 应落在回执上");
 
     const date = saved.label.match(/\d{4}-\d{2}-\d{2}/)[0];
-    await withTimeOffset(10, () => env.commands.get("hdm-forget").handler({ rawInput: "all" }));
+    await withTimeOffset(10, async () => {
+      await env.commands.get("hdm-forget").handler({ rawInput: "all" });
+      await waitForBackgroundForget();
+    });
 
     assert.equal(await stat(path.join(saved.folder, "level1.txt")).catch(() => null), null);
     assert.equal(await stat(path.join(saved.folder, "level0.txt")).catch(() => null), null);
@@ -650,23 +663,25 @@ test("HDM 集成：更换母文件夹时自动迁移", async () => {
 });
 
 // 2026-11-19 事故回归：临时 home 的实例化不得把真实母文件夹搬进临时目录。
-test("HDM 集成：homeDir 指向临时目录时拒绝迁移，旧库与指针都保留", async () => {
+// 0.4.x：闸门拒绝后直接终止初始化，不在临时 home 上建库（否则本次会话写的记忆随进程消失）。
+test("HDM 集成：homeDir 指向临时目录时拒绝迁移并终止初始化，旧库与指针都保留", async () => {
   const target = await newHome();
   // 旧母文件夹用主目录下的假路径：闸门在 stat 之前生效，路径无需真实存在。
   const fakeRealHome = path.join(os.homedir(), `hdm-gate-${process.pid}-${Date.now()}`);
-  const warnings = [];
+  const errors = [];
   try {
     await writePointer(fakeRealHome);
     const env = makeCtx();
-    const info = env.ctx.logger.info;
-    env.ctx.logger = { info, warn: (line) => warnings.push(String(line)), error() {}, debug() {} };
+    env.ctx.logger = { info() {}, warn() {}, error: (line) => errors.push(String(line)), debug() {} };
     await apply(env.ctx, { ...CONFIG, homeDir: target });
 
     const pointer = await readPointer();
     assert.equal(path.resolve(pointer.homeDir), path.resolve(fakeRealHome), "指针仍指向旧库，未被改写");
-    assert.ok(warnings.some((line) => /拒绝把母文件夹迁入临时目录/.test(line)), "应记录拒迁告警");
-    // 新 home 照常初始化自己的目录，但不含被搬来的旧数据。
-    assert.ok(await stat(path.join(target, "IAM.md")));
+    assert.ok(errors.some((line) => /拒绝把母文件夹迁入临时目录/.test(line)), "应记录拒迁错误");
+    assert.equal(env.tools.size, 0, "闸门拒绝时不注册任何工具");
+    assert.equal(env.commands.size, 0, "闸门拒绝时不注册任何命令");
+    // 临时 home 不被初始化，避免把记忆写进随时会被清理的目录。
+    await assert.rejects(stat(path.join(target, "IAM.md")), "不应在临时 home 上建库");
   } finally {
     await writePointer(path.join(os.tmpdir(), `hdm-pointer-${process.pid}.json`));
     await rm(target, { recursive: true, force: true });
@@ -1296,18 +1311,19 @@ test("HDM 0.2.4：同日一直追加；跨天且间隔超过 3 小时才另起�
     Date.now = () => base;
 
     // 第一次保存：先走 /hdm-remember 登记，让 hdm_save 以 pin=true 落库并固定单元
+    // 0.4.0 起「同事件跨天也追加」，所以这里刻意不给 event，测的是「无事件」时的时间窗回退。
     await env.commands.get("hdm-remember").handler({ agent });
-    const first = await saveMemory(env, agent);
+    const first = await saveMemory(env, agent, { event: undefined });
 
     // 同日隔 4 小时：仍然追加（同日不拆）
     Date.now = () => base + 4 * 3600_000;
-    const sameDay = await saveMemory(env, agent);
+    const sameDay = await saveMemory(env, agent, { event: undefined });
     assert.equal(sameDay.uid, first.uid, "同一天即使隔 4 小时也应继续追加");
     assert.equal(sameDay.merged, true);
 
     // 次日（+26h、跨自然日且远超 3 小时）：另起一条
     Date.now = () => base + 26 * 3600_000;
-    const nextDay = await saveMemory(env, agent);
+    const nextDay = await saveMemory(env, agent, { event: undefined });
     assert.notEqual(nextDay.uid, first.uid, "跨天且间隔超过 3 小时必须新开记忆单元");
     const sessions = await readJson(path.join(home, "state", "sessions.json"));
     assert.equal(sessions.sessions[SESSION_ID].memoryUid, nextDay.uid, "固定单元跟到新的一条");
